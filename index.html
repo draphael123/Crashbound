@@ -66,7 +66,16 @@
       • <b>Wisp → Frostbite</b> freezes an enemy (<span class="key">❄ frozen</span>).<br>
       • <b>Wisp → Meteor</b> does <b>huge bonus damage</b> to an airborne or frozen target — the <b>DETONATE</b>.</p>
     <p style="text-align:left;color:#74e0ff">Launching/freezing also shoves the enemy back on the timeline, so they lose their turn. Trade that lock for damage by detonating.</p>
+    <p style="text-align:left">Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (damage over time), and <b>Gust</b> yanks the back enemy into melee. Survive <b>3 encounters</b> — patrol, an elite, then the Warlord.</p>
     <button onclick="document.getElementById('intro').classList.add('hidden')">Fight!</button>
+  </div>
+</div>
+
+<div id="inter" class="overlay hidden">
+  <div class="card">
+    <h2 id="interTitle" class="win"></h2>
+    <p id="interBody"></p>
+    <button onclick="continueRun()">Advance</button>
   </div>
 </div>
 
@@ -85,6 +94,9 @@ const bar = document.getElementById('bar'), logEl = document.getElementById('log
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 const now = ()=>performance.now();
 let T = 0, RUN = true;            // T = anim clock; RUN gates the render loop (eval RUN=false to freeze for screenshots)
+// debug capture: returns the canvas as base64 JPEG (no data: prefix) so it can be decoded to a viewable file
+window.snap = (sc=0.66, q=0.62)=>{ const t=document.createElement('canvas'); t.width=Math.round(W*sc); t.height=Math.round(H*sc);
+  t.getContext('2d').drawImage(cv,0,0,t.width,t.height); return t.toDataURL('image/jpeg',q).split(',')[1]; };
 
 // ---------- ability definitions (data-driven) ----------
 const ABILITIES = {
@@ -99,37 +111,62 @@ const ABILITIES = {
   frost:    {name:'Frostbite', tag:'magic · any',    cd:2, target:'any',   dmg:6,  fx:'freeze',
              desc:'Freeze any enemy (❄ frozen) and shove them back on the timeline.'},
   meteor:   {name:'Meteor',    tag:'magic · any',    cd:3, target:'any',   dmg:12, fx:'detonate',
-             desc:'Big hit. DETONATES airborne/frozen targets for +20 bonus damage.'},
+             desc:'Fire hit. DETONATES airborne/frozen targets for +20, and BURNS the target.'},
+  rend:     {name:'Rend',      tag:'melee · front',  cd:2, target:'front', dmg:6,  fx:'bleed',
+             desc:'Deep cut — BLEEDS the front enemy for 3 turns.'},
+  gust:     {name:'Gust',      tag:'magic · pull',   cd:3, target:'back',  dmg:4,  fx:'pull',
+             desc:'Yank the backmost enemy to the FRONT, into melee range.'},
 };
 const DETONATE_BONUS = 20;
+const BURN_DMG = 4, BURN_TURNS = 3, BLEED_DMG = 3, BLEED_TURNS = 3;
 
 // ---------- art palettes ----------
 const ART = {
-  brand: {skin:'#f1c9a5', main:'#e8902f', dark:'#a85d12', trim:'#ffd98a', gear:'helmet', weapon:'sword', shield:true},
-  wisp:  {skin:'#f1c9a5', main:'#3f78d8', dark:'#264a8a', trim:'#9fd6ff', gear:'wizhat', weapon:'staff'},
-  grunt: {skin:'#7cc36a', main:'#5a8f3c', dark:'#3a6326', trim:'#bdf09a', gear:'none',   weapon:'club', ears:true},
-  brute: {skin:'#caa0d8', main:'#a64b86', dark:'#6e2c58', trim:'#e3a7d2', gear:'none',   weapon:'bigclub', big:true},
-  archer:{skin:'#e8b98e', main:'#c47a3a', dark:'#8a5022', trim:'#f0c98a', gear:'hood',   weapon:'bow'},
+  brand: {skin:'#f1c9a5', main:'#e8902f', dark:'#a85d12', trim:'#ffd98a', gear:'helmet', weapon:'sword', shield:true, idle:'calm'},
+  wisp:  {skin:'#f1c9a5', main:'#3f78d8', dark:'#264a8a', trim:'#9fd6ff', gear:'wizhat', weapon:'staff', idle:'float'},
+  grunt: {skin:'#7cc36a', main:'#5a8f3c', dark:'#3a6326', trim:'#bdf09a', gear:'none',   weapon:'club', ears:true, idle:'fidget'},
+  brute: {skin:'#caa0d8', main:'#a64b86', dark:'#6e2c58', trim:'#e3a7d2', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
+  archer:{skin:'#e8b98e', main:'#c47a3a', dark:'#8a5022', trim:'#f0c98a', gear:'hood',   weapon:'bow', idle:'calm'},
+  elite: {skin:'#b58fcf', main:'#8f3030', dark:'#591c1c', trim:'#f0a85a', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
+  boss:  {skin:'#c7b89c', main:'#3b3656', dark:'#201d30', trim:'#e85a6b', gear:'helmet', weapon:'sword', shield:true, big:true, idle:'calm'},
 };
+
+// ---------- foe stat table + encounters ----------
+const FOES = {
+  grunt: {name:'Grunt',        spd:9,  hp:24,  atk:7},
+  brute: {name:'Brute',        spd:6,  hp:42,  atk:11},
+  archer:{name:'Archer',       spd:11, hp:18,  atk:6,  ranged:true},
+  elite: {name:'Ogre Captain', spd:7,  hp:66,  atk:13, onhit:'bleed', elite:true},
+  boss:  {name:'Warlord',      spd:8,  hp:140, atk:14, onhit:'burn',  boss:true},
+};
+const ENCOUNTERS = [
+  { name:'Vanguard Patrol',      foes:['grunt','brute','archer'] },
+  { name:'Ogre Captain (Elite)', foes:['grunt','elite','grunt'] },
+  { name:'The Warlord (Boss)',   foes:['boss','archer'] },
+];
 
 // ---------- unit factories ----------
 function hero(id,name,spd,hp,abil){return{id,name,art:ART[id],spd,hp,maxhp:hp,abil,side:'hero',
   nextAt:100/spd, cds:{}, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0};}
-function foe(id,name,spd,hp,atk){return{id,name,art:ART[id],spd,hp,maxhp:hp,atk,side:'foe',
-  nextAt:100/spd, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0};}
+function foe(id){ const d=FOES[id]; return {id, name:d.name, art:ART[id], spd:d.spd, hp:d.hp, maxhp:d.hp, atk:d.atk,
+  ranged:!!d.ranged, onhit:d.onhit||null, boss:!!d.boss, elite:!!d.elite, side:'foe',
+  nextAt:100/d.spd, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0}; }
 
 let state;
 function freshState(){
   const heroes=[
-    hero('brand','Brand',10,62,['slash','uppercut','shove']),
-    hero('wisp','Wisp',12,44,['bolt','frost','meteor']),
+    hero('brand','Brand',10,62,['slash','uppercut','shove','rend']),
+    hero('wisp','Wisp',12,44,['bolt','frost','meteor','gust']),
   ];
-  const foes=[
-    foe('grunt','Grunt',9,24,7),
-    foe('brute','Brute',6,42,11),
-    foe('archer','Archer',11,18,6),
-  ];
-  return {heroes,foes,active:null,phase:'idle',pending:null,floats:[],flash:0,gen:(state?state.gen+1:1),clock:0};
+  const s={heroes,foes:[],encIndex:0,active:null,phase:'idle',pending:null,floats:[],sparks:[],puffs:[],flash:0,shakeT:0,gen:(state?state.gen+1:1),clock:0};
+  s.foes=ENCOUNTERS[0].foes.map(foe);
+  return s;
+}
+function loadEncounter(i){
+  state.encIndex=i; state.foes=ENCOUNTERS[i].foes.map(foe);
+  [...state.heroes,...state.foes].forEach(u=>u.nextAt=100/u.spd);
+  state.heroes.forEach(h=>{ h.fx={}; });
+  state.active=null; state.floats=[]; state.sparks=[]; state.puffs=[]; state.flash=0; state.shakeT=0;
 }
 
 const units = ()=>[...state.heroes,...state.foes];
@@ -150,8 +187,8 @@ function log(html,cls){ const d=document.createElement('div'); if(cls)d.classNam
   logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
 
 // ---------- scene anchors (feet points) + hitboxes ----------
-function heroAnchor(i){ return i===0 ? {x:232,y:352,s:1.0} : {x:132,y:268,s:0.9}; }
-const FOE_PTS = [{x:W-220,y:356,s:1.0},{x:W-132,y:300,s:0.9},{x:W-58,y:256,s:0.82}];
+function heroAnchor(i){ return i===0 ? {x:238,y:358,s:1.12} : {x:126,y:274,s:1.0}; }
+const FOE_PTS = [{x:W-212,y:360,s:1.12},{x:W-126,y:306,s:1.0},{x:W-52,y:260,s:0.9}];
 function foeAnchor(i){ return FOE_PTS[Math.min(i,FOE_PTS.length-1)]; }
 function anchorOf(u){ const hi=state.heroes.indexOf(u); if(hi>=0) return heroAnchor(hi);
   const fi=living(state.foes).indexOf(u); return foeAnchor(fi<0?0:fi); }
@@ -161,8 +198,21 @@ function foeHit(i){ const a=foeAnchor(i); return {x:a.x-46*a.s, y:a.y-150*a.s, w
 async function advance(){
   if(checkEnd()) return;
   const a = nextActor(); state.active=a; state.clock=a.nextAt;
+  // damage-over-time ticks at the start of the afflicted unit's turn
+  if(a.fx.burn || a.fx.bleed){
+    let dot=0, isBurn=false;
+    if(a.fx.burn){ dot+=BURN_DMG; isBurn=true; if(--a.fx.burn<=0) delete a.fx.burn; }
+    if(a.fx.bleed){ dot+=BLEED_DMG; if(--a.fx.bleed<=0) delete a.fx.bleed; }
+    a.hp-=dot; a.hitT=now(); floatText(a,dot,isBurn?'#ff9a4a':'#ff5a6a'); spark(a);
+    log(`<b>${a.name}</b> takes <span class="hit">${dot}</span> from ${isBurn?'burning':'bleeding'}.`,'cc');
+    if(a.hp<=0){ a.hp=0; a.alive=false; a.fx={}; log(`<b>${a.name}</b> succumbs!`);
+      if(a.side==='foe') state.foes=state.foes.filter(f=>f!==a); }
+    await sleep(340);
+    if(!a.alive) return advance();
+  }
   if(a.fx.launch || a.fx.freeze){
     log(`<b>${a.name}</b> ${a.fx.launch?'crashes down':'thaws out'} and loses the turn.`,'cc');
+    if(a.fx.launch) puff(a);
     a.fx={}; schedule(a); await sleep(520); return advance();
   }
   if(a.side==='foe'){ await foeTurn(a); return advance(); }
@@ -184,6 +234,7 @@ async function useAbility(id){
   const a=state.active, ab=ABILITIES[id];
   if(state.phase!=='select'||!ab||a.cds[id]>0) return;
   if(ab.target==='front'){ const t=frontFoe(); if(t) await resolve(a,ab,id,t); }
+  else if(ab.target==='back'){ const fl=living(state.foes); const t=fl[fl.length-1]; if(t) await resolve(a,ab,id,t); }
   else { state.phase='target'; state.pending={id,ab};
     hintEl.textContent=`Choose a target for ${ab.name}…`;
     bar.querySelectorAll('button').forEach(b=>b.disabled=true); }
@@ -200,51 +251,81 @@ cv.addEventListener('click', async e=>{
 
 function floatText(u,text,color){ const a=anchorOf(u);
   state.floats.push({x:a.x, y:a.y-150*a.s, text, color, life:1}); }
+function spark(u){ const a=anchorOf(u); state.sparks.push({x:a.x, y:a.y-72*a.s, t0:now()}); }
+function puff(u){ const a=anchorOf(u); state.puffs.push({x:a.x, y:a.y-1, t0:now()}); }
 
 async function resolve(actor,ab,id,target){
   const myGen=state.gen; state.phase='anim'; renderBar(); actor.cds[id]=ab.cd;
   actor.lungeT=now();
   let dmg=ab.dmg, deton=false;
-  if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; }
+  if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; state.shakeT=now(); }
   dealDamage(target,dmg,deton);
   if(ab.fx==='launch'){ target.fx.launch=true; target.nextAt+=7; log(`<b>${actor.name}</b> launches <b>${target.name}</b> — <span class="cc">✦ airborne!</span>`); }
   if(ab.fx==='freeze'){ target.fx.freeze=true; target.nextAt+=6; log(`<b>${actor.name}</b> freezes <b>${target.name}</b> — <span class="cc">❄ frozen!</span>`); }
   if(ab.fx==='shove' && target.alive){ state.foes.splice(state.foes.indexOf(target),1); state.foes.push(target); log(`<b>${actor.name}</b> shoves <b>${target.name}</b> to the back.`); }
-  await sleep(deton?760:480);
+  if(ab.fx==='pull' && target.alive){ const i=state.foes.indexOf(target); if(i>0){ state.foes.splice(i,1); state.foes.unshift(target); } log(`<b>${actor.name}</b> yanks <b>${target.name}</b> to the front.`); }
+  if(ab.fx==='bleed' && target.alive){ target.fx.bleed=BLEED_TURNS; log(`<b>${actor.name}</b> rends <b>${target.name}</b> — <span class="cc">bleeding!</span>`); }
+  if(ab.fx==='detonate' && target.alive){ target.fx.burn=BURN_TURNS; log(`<b>${target.name}</b> is <span class="cc">burning!</span>`); }
+  await sleep(deton?640:380);
   if(state.gen!==myGen) return;
   schedule(actor); advance();
 }
 
 function dealDamage(t,dmg,deton){
-  t.hp-=dmg; t.hitT=now(); floatText(t,(deton?'✸ ':'')+dmg, deton?'#c08bff':'#ffd0d0');
+  t.hp-=dmg; t.hitT=now(); floatText(t,(deton?'✸ ':'')+dmg, deton?'#c08bff':'#ffd0d0'); spark(t);
   if(deton) log(`<span class="det">DETONATE! ${t.name} takes ${dmg} damage!</span>`);
   else log(`<b>${state.active.name}</b> hits <b>${t.name}</b> for <span class="hit">${dmg}</span>.`);
   if(t.hp<=0){ t.hp=0; t.alive=false; t.fx={}; log(`<b>${t.name}</b> is defeated!`);
     if(t.side==='foe') state.foes=state.foes.filter(f=>f!==t); }
 }
 
+function hurtHero(h,dmg,onhit){
+  h.hp-=dmg; h.hitT=now(); floatText(h,dmg,'#ffd0d0'); spark(h);
+  if(onhit && h.alive && h.hp>0){ h.fx[onhit]=(onhit==='burn'?BURN_TURNS:BLEED_TURNS);
+    log(`<b>${h.name}</b> is ${onhit==='burn'?'set ablaze':'bleeding'}!`,'cc'); }
+  if(h.hp<=0){ h.hp=0; h.alive=false; log(`<b>${h.name}</b> falls!`); }
+}
 async function foeTurn(f){
-  state.phase='anim'; renderBar(); hintEl.textContent=''; await sleep(520);
+  state.phase='anim'; renderBar(); hintEl.textContent=''; await sleep(360);
   const hs=living(state.heroes); if(!hs.length) return;
-  let target = f.id==='archer' ? (hs.find(h=>h.id==='wisp')||hs[0])
-    : ((hs.find(h=>h.id==='brand')&&Math.random()<0.7)?hs.find(h=>h.id==='brand'):hs[Math.floor(Math.random()*hs.length)]);
-  f.lungeT=now(); await sleep(180);
-  const dmg=f.atk+Math.floor(Math.random()*3)-1;
-  target.hp-=dmg; target.hitT=now(); floatText(target,dmg,'#ffd0d0');
-  log(`<b>${f.name}</b> attacks <b>${target.name}</b> for <span class="hit">${dmg}</span>.`);
-  if(target.hp<=0){ target.hp=0; target.alive=false; log(`<b>${target.name}</b> falls!`); }
-  await sleep(420); schedule(f);
+  const roll=()=>f.atk+Math.floor(Math.random()*3)-1;
+  f.lungeT=now(); await sleep(150);
+  if(f.boss && Math.random()<0.35){            // boss cleave — hits the whole party
+    log(`<b>${f.name}</b> CLEAVES the whole party!`,'det'); state.shakeT=now(); state.flash=0.7;
+    for(const h of hs) hurtHero(h,roll(),null);
+  } else {
+    const target = f.ranged ? (hs.find(h=>h.id==='wisp')||hs[0])
+      : ((hs.find(h=>h.id==='brand')&&Math.random()<0.7)?hs.find(h=>h.id==='brand'):hs[Math.floor(Math.random()*hs.length)]);
+    const d=roll();
+    log(`<b>${f.name}</b> attacks <b>${target.name}</b> for <span class="hit">${d}</span>.`);
+    hurtHero(target,d,f.onhit);
+  }
+  await sleep(320); schedule(f);
 }
 
-function checkEnd(){ if(!living(state.foes).length){ endGame(true); return true; }
-  if(!living(state.heroes).length){ endGame(false); return true; } return false; }
+function checkEnd(){
+  if(!living(state.foes).length){
+    if(state.encIndex < ENCOUNTERS.length-1){ encounterCleared(); return true; }
+    endGame(true); return true; }
+  if(!living(state.heroes).length){ endGame(false); return true; }
+  return false; }
+function encounterCleared(){
+  state.phase='cleared'; bar.innerHTML=''; hintEl.textContent='';
+  state.heroes.forEach(h=>{ if(h.alive){ h.hp=Math.min(h.maxhp, h.hp+Math.ceil(h.maxhp*0.35)); h.cds={}; } });
+  const nxt=ENCOUNTERS[state.encIndex+1];
+  document.getElementById('interTitle').textContent='Encounter cleared!';
+  document.getElementById('interBody').innerHTML=`Party patched up <b>(+35% HP)</b>. Up next: <b>${nxt.name}</b>.`;
+  document.getElementById('inter').classList.remove('hidden');
+}
+function continueRun(){ document.getElementById('inter').classList.add('hidden');
+  loadEncounter(state.encIndex+1); log(`— Encounter ${state.encIndex+1}: <b>${ENCOUNTERS[state.encIndex].name}</b> —`); advance(); }
 function endGame(win){
   state.phase='over'; bar.innerHTML=''; hintEl.textContent='';
-  document.getElementById('endTitle').textContent = win?'Victory!':'Wiped out';
+  document.getElementById('endTitle').textContent = win?'Gauntlet cleared!':'Wiped out';
   document.getElementById('endTitle').className = win?'win':'lose';
   document.getElementById('endBody').innerHTML = win
-    ? 'The combo carries. Next: status depth, board-shuffle, and a boss (<b>Phase 2</b>).'
-    : 'The enemy column got the tempo. Set up a launch/freeze, then <b>detonate</b> to claw back turns.';
+    ? 'You beat all three encounters — patrol, elite, and the Warlord. Next: a roguelite map to string runs together (<b>Phase 3</b>).'
+    : 'The enemy got the tempo. Stack launch/freeze/burn/bleed, detonate to claw back turns, and pull the Archer into melee.';
   document.getElementById('end').classList.remove('hidden');
 }
 
@@ -265,35 +346,55 @@ function circle(x,y,r){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.closePath();}
 
 // ---- layered background ----
 function drawBackground(){
-  // sky
-  let sky=ctx.createLinearGradient(0,52,0,H); sky.addColorStop(0,'#2a3b63'); sky.addColorStop(.5,'#4a5a86'); sky.addColorStop(1,'#8a7fa0');
-  ctx.fillStyle=sky; ctx.fillRect(0,52,W,H-52);
-  // moon glow
-  ctx.save(); ctx.globalAlpha=.9; let mg=ctx.createRadialGradient(120,120,4,120,120,60);
-  mg.addColorStop(0,'#fff6e0'); mg.addColorStop(1,'rgba(255,246,224,0)'); ctx.fillStyle=mg; circle(120,120,60); ctx.fill(); ctx.restore();
+  // sky (bright daytime)
+  let sky=ctx.createLinearGradient(0,52,0,H); sky.addColorStop(0,'#3fa3e6'); sky.addColorStop(.55,'#8fd2ef'); sky.addColorStop(1,'#dcf3e6');
+  ctx.fillStyle=sky; ctx.fillRect(-18,40,W+36,H);
+  // sun (placed in open sky between the parties, away from units)
+  let mg=ctx.createRadialGradient(410,84,6,410,84,58);
+  mg.addColorStop(0,'#fffadb'); mg.addColorStop(.4,'rgba(255,238,150,.8)'); mg.addColorStop(1,'rgba(255,238,150,0)');
+  ctx.fillStyle=mg; circle(410,84,58); ctx.fill(); ctx.fillStyle='#fff7cf'; circle(410,84,15); ctx.fill();
+  // clouds
+  ctx.fillStyle='rgba(255,255,255,.88)'; cloud(170,94,1); cloud(610,118,.8); cloud(300,150,.55);
   // far hills
-  ctx.fillStyle='#3c4a72'; hill(-20,300,260,90); hill(520,310,360,86);
-  // castle silhouette
-  drawCastle(560,300);
+  ctx.fillStyle='#83b46c'; hill(-20,300,260,90); hill(520,310,360,86);
+  ctx.fillStyle='#6fa55c'; hill(210,318,300,68);
+  // castle (distant landmark in the open middle, sitting on the hills)
+  drawCastle(332,318,0.82);
   // mid treeline
-  ctx.fillStyle='#26405a'; for(let i=0;i<8;i++) tree(40+i*100, 330, 26+(i%3)*6);
+  ctx.fillStyle='#3f7e44'; for(let i=0;i<8;i++) tree(40+i*100, 330, 26+(i%3)*6);
   // ground
-  let gr=ctx.createLinearGradient(0,330,0,H); gr.addColorStop(0,'#4c7a3a'); gr.addColorStop(1,'#2f5226');
+  let gr=ctx.createLinearGradient(0,330,0,H); gr.addColorStop(0,'#79c64d'); gr.addColorStop(1,'#3f802c');
   ctx.fillStyle=gr; ctx.beginPath(); ctx.moveTo(0,344);
   ctx.bezierCurveTo(W*0.3,332, W*0.7,356, W,338); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
   // ground speckles
-  ctx.fillStyle='rgba(255,255,255,.05)'; for(let i=0;i<60;i++){ const gx=(i*97%W), gy=360+(i*53%80); circle(gx,gy,1.5); ctx.fill(); }
+  ctx.fillStyle='rgba(255,255,255,.07)'; for(let i=0;i<60;i++){ const gx=(i*97%W), gy=360+(i*53%80); circle(gx,gy,1.5); ctx.fill(); }
 }
+function cloud(x,y,s){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  circle(0,0,16); ctx.fill(); circle(18,4,13); ctx.fill(); circle(-16,5,12); ctx.fill(); circle(4,-9,12); ctx.fill();
+  ctx.fillRect(-16,1,35,11); ctx.restore(); }
 function hill(x,y,w,h){ ctx.beginPath(); ctx.moveTo(x,y+h); ctx.quadraticCurveTo(x+w/2,y-h, x+w,y+h); ctx.closePath(); ctx.fill(); }
 function tree(x,y,h){ ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-h*0.5,y); ctx.lineTo(x,y-h*1.6); ctx.lineTo(x+h*0.5,y); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.moveTo(x,y-h*0.4); ctx.lineTo(x-h*0.42,y-h*0.4); ctx.lineTo(x,y-h*1.9); ctx.lineTo(x+h*0.42,y-h*0.4); ctx.closePath(); ctx.fill(); }
-function drawCastle(x,y){ ctx.fillStyle='#33436a';
-  ctx.fillRect(x,y-70,120,70);
-  for(let i=0;i<5;i++) ctx.fillRect(x+i*28,y-78,16,12);          // battlements
-  ctx.fillRect(x-16,y-92,30,92); ctx.fillRect(x+106,y-92,30,92); // towers
-  for(let i=0;i<4;i++){ ctx.fillRect(x-14+ (i>1?122:0),y-100,10,8); }
-  ctx.fillStyle='#1c2742'; ctx.fillRect(x+48,y-34,24,34);         // gate
+function drawCastle(x,y,s){ s=s||1; ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  const stone='#9aa3c6', dark='#727bA4', roof='#7d5ba6', win='#3a3f5e';
+  // main wall + battlements
+  ctx.fillStyle=stone; ctx.fillRect(-60,-66,120,66);
+  for(let i=0;i<6;i++) ctx.fillRect(-60+i*22,-74,12,10);
+  // side towers
+  ctx.fillStyle=dark; ctx.fillRect(-78,-90,28,90); ctx.fillRect(50,-90,28,90);
+  // central keep (taller)
+  ctx.fillStyle=stone; ctx.fillRect(-20,-108,40,108);
+  ctx.fillStyle=dark; for(let i=0;i<3;i++) ctx.fillRect(-20+i*16,-116,10,10);
+  // conical roofs
+  ctx.fillStyle=roof; cone(-64,-90,17); cone(64,-90,17); cone(0,-116,23);
+  // flag
+  ctx.strokeStyle=dark; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-138); ctx.lineTo(0,-156); ctx.stroke();
+  ctx.fillStyle='#e85a6b'; ctx.beginPath(); ctx.moveTo(0,-156); ctx.lineTo(15,-151); ctx.lineTo(0,-146); ctx.closePath(); ctx.fill();
+  // gate + windows
+  ctx.fillStyle=win; ctx.fillRect(-8,-30,16,30); ctx.fillRect(-66,-58,8,12); ctx.fillRect(58,-58,8,12);
+  ctx.restore();
 }
+function cone(x,y,w){ ctx.beginPath(); ctx.moveTo(x-w,y); ctx.lineTo(x,y-w*1.3); ctx.lineTo(x+w,y); ctx.closePath(); ctx.fill(); }
 
 // ---- characters ----
 function drawScene(){
@@ -310,8 +411,14 @@ function drawCharacter(u,a,front){
   const active = u===state.active && state.phase!=='over';
   const facing = u.side==='hero' ? 1 : -1;
   const launched = !!u.fx.launch;
-  const bob = Math.sin(t/430 + u.bobPhase)*2.5 + (launched ? -14 - Math.abs(Math.sin(t/160))*6 : 0);
-  let lx=0; if(u.lungeT){ const p=(t-u.lungeT)/300; if(p<1) lx=Math.sin(p*Math.PI)*22*facing; }
+  const ph=u.bobPhase, idle=A.idle||'calm';
+  let baseBob, leanR=0, jit=0;
+  if(idle==='float'){ baseBob=Math.sin(t/520+ph)*4 + 1.5; }            // mage hovers
+  else if(idle==='fidget'){ baseBob=Math.sin(t/205+ph)*1.6; jit=Math.sin(t/88+ph*2)*1.3; } // goblin twitch
+  else if(idle==='sway'){ baseBob=Math.sin(t/680+ph)*2; leanR=Math.sin(t/680+ph)*0.05; }   // brute lean
+  else { baseBob=Math.sin(t/430+ph)*2.5; }
+  const bob = baseBob + (launched ? -14 - Math.abs(Math.sin(t/160))*6 : 0);
+  let lx=jit; if(u.lungeT){ const p=(t-u.lungeT)/300; if(p<1) lx+=Math.sin(p*Math.PI)*22*facing; }
   let shake=0; if(u.hitT){ const p=(t-u.hitT)/180; if(p<1) shake=Math.sin(p*40)*3*(1-p); }
   const hitGlow = u.hitT && (t-u.hitT)<170;
 
@@ -324,12 +431,13 @@ function drawCharacter(u,a,front){
 
   ctx.save();
   ctx.translate(a.x+lx+shake, a.y-bob);
+  if(leanR) ctx.rotate(leanR);
   ctx.scale(facing*a.s, a.s);
 
   const OL='#1a1320';                         // outline
   ctx.lineJoin='round'; ctx.lineWidth=2.4; ctx.strokeStyle=OL;
   const big = A.big;
-  if(big) ctx.scale(1.18,1.16);
+  if(A.boss) ctx.scale(1.36,1.32); else if(big) ctx.scale(1.18,1.16);
 
   // shield on back (brand)
   if(A.shield){ ctx.fillStyle=A.trim; circle(-14,-58,13); ctx.fill(); ctx.stroke();
@@ -348,8 +456,11 @@ function drawCharacter(u,a,front){
   // torso
   let tg=ctx.createLinearGradient(0,-84,0,-26); tg.addColorStop(0,A.main); tg.addColorStop(1,A.dark);
   ctx.fillStyle=tg; rr(-22,-84,44,56,13); ctx.fill(); ctx.stroke();
+  if(u.side==='hero'){ ctx.fillStyle=A.trim; rr(-7,-82,14,38,3); ctx.fill(); } // tabard stripe
   ctx.fillStyle=A.dark; rr(-22,-44,44,8,3); ctx.fill();   // belt
   ctx.fillStyle=A.trim; rr(-4,-44,8,8,2); ctx.fill();     // buckle
+  if(u.side==='hero'){ ctx.fillStyle=A.main;               // pauldrons
+    rr(-30,-85,18,14,7); ctx.fill(); ctx.stroke(); rr(12,-85,18,14,7); ctx.fill(); ctx.stroke(); }
 
   // head
   ctx.fillStyle=A.skin; circle(4,-100,17); ctx.fill(); ctx.stroke();
@@ -359,6 +470,11 @@ function drawCharacter(u,a,front){
   ctx.fillStyle='#1a1320'; circle(9,-103,2.2); ctx.fill(); circle(16,-102,2.2); ctx.fill();
   if(u.side==='foe'){ ctx.strokeStyle=OL; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(5,-109); ctx.lineTo(13,-106); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(20,-107); ctx.lineTo(13,-105); ctx.stroke(); ctx.lineWidth=2.4; }
+  // mouth
+  ctx.strokeStyle=OL; ctx.lineWidth=1.6; ctx.beginPath();
+  if(u.side==='hero'){ ctx.moveTo(8,-93); ctx.lineTo(15,-93); }
+  else { ctx.moveTo(7,-92); ctx.quadraticCurveTo(11.5,-95.5,16,-92); }   // grin
+  ctx.stroke(); ctx.lineWidth=2.4;
 
   // headgear
   if(A.gear==='helmet'){ ctx.fillStyle='#b9c2d4'; ctx.beginPath(); ctx.arc(4,-103,18,Math.PI,0); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -389,6 +505,10 @@ function drawCharacter(u,a,front){
   // frozen overlay
   if(u.fx.freeze){ ctx.fillStyle='rgba(116,224,255,.30)'; rr(-26,-118,52,96,12); ctx.fill();
     ctx.strokeStyle='#bdeeff'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(-20,-70); ctx.lineTo(20,-90); ctx.moveTo(-18,-94); ctx.lineTo(18,-66); ctx.stroke(); }
+  // burning overlay (flickering flame tongues)
+  if(u.fx.burn){ const fl=0.5+0.5*Math.abs(Math.sin(t/120+u.bobPhase)); ctx.fillStyle=`rgba(255,120,30,${0.14+fl*0.12})`; rr(-24,-116,48,92,12); ctx.fill();
+    ctx.fillStyle=`rgba(255,180,60,${0.6+fl*0.4})`;
+    for(let k=-1;k<2;k++){ const fx=k*13, h=12+fl*8; ctx.beginPath(); ctx.moveTo(fx-5,-110); ctx.quadraticCurveTo(fx,-110-h,fx+5,-110); ctx.closePath(); ctx.fill(); } }
   // hit flash
   if(hitGlow){ ctx.globalAlpha=0.5*(1-(t-u.hitT)/170); ctx.fillStyle='#fff'; rr(-24,-118,48,94,12); ctx.fill(); ctx.globalAlpha=1; }
 
@@ -405,9 +525,11 @@ function drawPlate(u,a,front,active){
   ctx.lineWidth=active?2:1; ctx.strokeStyle=active?'#ffcf5c':'#2a3656'; rr(x,y,w,32,7); ctx.stroke();
   ctx.fillStyle='#fff'; ctx.font='700 12px Segoe UI'; ctx.textAlign='left'; ctx.fillText(u.name,x+9,y+14);
   // status glyphs
-  ctx.textAlign='right'; let gx=x+w-8;
-  if(u.fx.launch){ ctx.fillStyle='#c08bff'; ctx.fillText('✦',gx,y+14); gx-=14; }
-  if(u.fx.freeze){ ctx.fillStyle='#74e0ff'; ctx.fillText('❄',gx,y+14); }
+  ctx.textAlign='right'; let gx=x+w-8; ctx.font='700 12px Segoe UI';
+  if(u.fx.launch){ ctx.fillStyle='#c08bff'; ctx.fillText('✦',gx,y+14); gx-=13; }
+  if(u.fx.freeze){ ctx.fillStyle='#74e0ff'; ctx.fillText('❄',gx,y+14); gx-=13; }
+  if(u.fx.burn){ ctx.fillStyle='#ff9a4a'; ctx.fillText('✸',gx,y+14); gx-=13; }
+  if(u.fx.bleed){ ctx.fillStyle='#ff5a6a'; ctx.fillText('✚',gx,y+14); gx-=13; }
   // hp bar
   const bx=x+9,by=y+20,bw=w-18,bh=7, pct=Math.max(0,u.hp/u.maxhp);
   ctx.fillStyle='#05080f'; rr(bx,by,bw,bh,4); ctx.fill();
@@ -433,18 +555,39 @@ function drawTimeline(){
 function render(){
   T=now();
   ctx.clearRect(0,0,W,H);
+  // detonate screen-shake (battlefield only)
+  let sx=0,sy=0;
+  if(state.shakeT){ const p=(T-state.shakeT)/400; if(p<1){ const m=15*(1-p); sx=Math.sin(p*68)*m; sy=Math.cos(p*54)*m; } }
+  ctx.save(); ctx.translate(sx,sy);
   drawBackground();
+  // dust puffs (behind characters' feet)
+  for(const d of state.puffs){ const p=(T-d.t0)/480; if(p>=1) continue;
+    ctx.globalAlpha=(1-p)*0.5; ctx.fillStyle='#e9e2d2'; const r=6+p*20;
+    circle(d.x-12-p*10, d.y-4-p*4, r*0.6); ctx.fill();
+    circle(d.x+12+p*10, d.y-4-p*4, r*0.6); ctx.fill();
+    circle(d.x, d.y-2-p*7, r*0.7); ctx.fill(); ctx.globalAlpha=1; }
+  state.puffs=state.puffs.filter(d=>(T-d.t0)<480);
   drawScene();
-  // detonate flash
-  if(state.flash>0){ ctx.fillStyle=`rgba(192,139,255,${state.flash*0.30})`; ctx.fillRect(0,52,W,H-52); state.flash-=0.04; }
-  // timeline header band
-  ctx.fillStyle='#0c1322'; ctx.fillRect(0,0,W,52); ctx.strokeStyle='#1c2740'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,52); ctx.lineTo(W,52); ctx.stroke();
-  drawTimeline();
-  // floating numbers
+  // hit sparks (in front of characters)
+  for(const s of state.sparks){ const p=(T-s.t0)/260; if(p>=1) continue;
+    const r=6+p*16; ctx.globalAlpha=1-p;
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2.5; ctx.lineCap='round';
+    for(let k=0;k<6;k++){ const ang=k*Math.PI/3 + s.x*0.7;
+      ctx.beginPath(); ctx.moveTo(s.x+Math.cos(ang)*r*0.5, s.y+Math.sin(ang)*r*0.5);
+      ctx.lineTo(s.x+Math.cos(ang)*r, s.y+Math.sin(ang)*r); ctx.stroke(); }
+    ctx.strokeStyle='#ffe08a'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(s.x,s.y,r,0,7); ctx.stroke();
+    ctx.globalAlpha=1; ctx.lineCap='butt'; }
+  state.sparks=state.sparks.filter(s=>(T-s.t0)<260);
+  if(state.flash>0){ ctx.fillStyle=`rgba(192,139,255,${state.flash*0.30})`; ctx.fillRect(-20,40,W+40,H); state.flash-=0.04; }
+  // floating numbers (move with the scene)
   for(const f of state.floats){ ctx.globalAlpha=Math.max(0,f.life);
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.font='800 21px Segoe UI'; ctx.textAlign='center'; ctx.fillText(f.text,f.x+1,f.y+1);
     ctx.fillStyle=f.color; ctx.fillText(f.text,f.x,f.y); f.y-=0.8; f.life-=0.018; }
   state.floats=state.floats.filter(f=>f.life>0); ctx.globalAlpha=1;
+  ctx.restore();
+  // timeline header band (fixed, no shake)
+  ctx.fillStyle='#0c1322'; ctx.fillRect(0,0,W,52); ctx.strokeStyle='#1c2740'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,52); ctx.lineTo(W,52); ctx.stroke();
+  drawTimeline();
   if(RUN) requestAnimationFrame(render);
 }
 
