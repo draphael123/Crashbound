@@ -37,6 +37,7 @@
   .actbtn .nm em{font-style:normal;color:var(--muted);font-size:11px;font-weight:600}
   .actbtn .ds{font-size:11px;color:var(--muted);line-height:1.3}
   .cd{color:var(--frost)!important}
+  .mp{color:#5ca8ff!important;font-weight:700} .mpgen{color:#8a97b4!important;font-weight:700}
   #hint{font-size:12.5px;color:var(--gold);min-height:18px;margin:10px 2px 0;font-weight:600}
   #log{margin-top:8px;height:92px;overflow:auto;background:#0a0f1b;border:1px solid var(--line);
     border-radius:10px;padding:8px 11px;font-size:12px;color:var(--muted);line-height:1.55}
@@ -85,7 +86,7 @@
       • <b>Wisp → Frostbite</b> freezes an enemy (<span class="key">❄ frozen</span>).<br>
       • <b>Wisp → Meteor</b> does <b>huge bonus damage</b> to an airborne or frozen target — the <b>DETONATE</b>.</p>
     <p style="text-align:left;color:#74e0ff">Launching/freezing also shoves the enemy back on the timeline, so they lose their turn. Trade that lock for damage by detonating.</p>
-    <p style="text-align:left">Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (damage over time), and <b>Gust</b> yanks the back enemy into melee.</p>
+    <p style="text-align:left">Abilities cost <b>◆ mana</b> (pips under each hero). Basic attacks build +1 mana and you regain +1 each turn — so weave basics, then unleash. Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (DoT), and <b>Gust</b> pulls the back enemy into melee.</p>
     <p style="text-align:left;color:#ffcf5c">Climb a branching map — <b>B</b>attles, <b>E</b>lites, <b>$</b>hops, <b>R</b>est, <b>?</b> events — to reach the <b>W</b>arlord. HP carries between fights; spend gold on heals & upgrades. Party wipe ends the run (the map reshuffles).</p>
     <button onclick="beginRun()">Got it!</button>
   </div>
@@ -163,21 +164,21 @@ const SFX={
 
 // ---------- ability definitions (data-driven) ----------
 const ABILITIES = {
-  slash:    {name:'Slash',     tag:'melee · front',  cd:0, target:'front', dmg:11, fx:null,
-             desc:'Hack the front enemy.'},
-  uppercut: {name:'Uppercut',  tag:'melee · front',  cd:2, target:'front', dmg:7,  fx:'launch',
+  slash:    {name:'Slash',     tag:'melee · front',  cost:0, gen:1, target:'front', dmg:11, fx:null,
+             desc:'Hack the front enemy. Builds +1 mana.'},
+  uppercut: {name:'Uppercut',  tag:'melee · front',  cost:2, target:'front', dmg:7,  fx:'launch',
              desc:'Launch the front enemy (✦ airborne) and shove them back on the timeline.'},
-  shove:    {name:'Shove',     tag:'melee · front',  cd:2, target:'front', dmg:5,  fx:'shove',
+  shove:    {name:'Shove',     tag:'melee · front',  cost:2, target:'front', dmg:5,  fx:'shove',
              desc:'Knock the front enemy to the back of the line, exposing the next one.'},
-  bolt:     {name:'Arc Bolt',  tag:'magic · any',    cd:0, target:'any',   dmg:9,  fx:null,
-             desc:'Zap any enemy.'},
-  frost:    {name:'Frostbite', tag:'magic · any',    cd:2, target:'any',   dmg:6,  fx:'freeze',
+  bolt:     {name:'Arc Bolt',  tag:'magic · any',    cost:0, gen:1, target:'any',   dmg:9,  fx:null,
+             desc:'Zap any enemy. Builds +1 mana.'},
+  frost:    {name:'Frostbite', tag:'magic · any',    cost:2, target:'any',   dmg:6,  fx:'freeze',
              desc:'Freeze any enemy (❄ frozen) and shove them back on the timeline.'},
-  meteor:   {name:'Meteor',    tag:'magic · any',    cd:3, target:'any',   dmg:12, fx:'detonate',
+  meteor:   {name:'Meteor',    tag:'magic · any',    cost:3, target:'any',   dmg:12, fx:'detonate',
              desc:'Fire hit. DETONATES airborne/frozen targets for +20, and BURNS the target.'},
-  rend:     {name:'Rend',      tag:'melee · front',  cd:2, target:'front', dmg:6,  fx:'bleed',
+  rend:     {name:'Rend',      tag:'melee · front',  cost:2, target:'front', dmg:6,  fx:'bleed',
              desc:'Deep cut — BLEEDS the front enemy for 3 turns.'},
-  gust:     {name:'Gust',      tag:'magic · pull',   cd:3, target:'back',  dmg:4,  fx:'pull',
+  gust:     {name:'Gust',      tag:'magic · pull',   cost:2, target:'back',  dmg:4,  fx:'pull',
              desc:'Yank the backmost enemy to the FRONT, into melee range.'},
 };
 const DETONATE_BONUS = 20;
@@ -397,7 +398,7 @@ const TUT=[
   {screen:'village', text:'When you’re ready, click the <b>EXPEDITION</b> gate on the right to set out.'},
   {screen:'map', text:'Choose a path up the map — battles, shops, campfires and events lead to the <b>Warlord</b>. Click a glowing node to go.'},
   {screen:'battle', text:'The <b>TIMELINE</b> up top shows turn order — faster fighters act first.'},
-  {screen:'battle', text:'The core combo: <b>Brand’s Uppercut</b> launches an enemy (✦), then <b>Wisp’s Meteor</b> DETONATES it for huge bonus damage. Try it!'},
+  {screen:'battle', text:'Abilities cost <b>◆ mana</b> (the blue pips under each hero). <b>Basic attacks build mana</b>; spend it on the combo — <b>Uppercut</b> launches (✦), then <b>Meteor</b> DETONATES for huge damage.'},
   {screen:'battle', text:'Win fights for gold, heal at campfires, and reach the Warlord. Good luck!'},
 ];
 function startTutorial(){ tutStep=0; syncCoach(); }
@@ -418,7 +419,7 @@ function enterNode(n){ run.node=n; SFX.select();
 // ---- battle bridge ----
 function battleState(foeIds,node){
   const heroes=run.heroes;
-  heroes.forEach(h=>{ h.fx={}; h.cds={}; h.lungeT=0; h.hitT=0; h.alive=h.hp>0; h.nextAt=100/h.spd; });
+  heroes.forEach(h=>{ h.fx={}; h.mp=Math.min(h.maxmp,3); h.lungeT=0; h.hitT=0; h.alive=h.hp>0; h.nextAt=100/h.spd; });
   return {heroes,foes:foeIds.map(foe),node,active:null,phase:'idle',pending:null,floats:[],sparks:[],puffs:[],flash:0,shakeT:0,gen:(state?state.gen+1:1),clock:0};
 }
 function startBattle(node){
@@ -612,7 +613,7 @@ function drawFade(){ if(!fadeT) return; const p=(now()-fadeT)/320; if(p>=1){ fad
 
 // ---------- unit factories ----------
 function hero(id,name,spd,hp,abil){return{id,name,art:ART[id],spd,hp,maxhp:hp,abil,side:'hero',
-  nextAt:100/spd, cds:{}, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0};}
+  nextAt:100/spd, mp:3, maxmp:6, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0};}
 function foe(id){ const d=FOES[id]; return {id, name:d.name, art:ART[id], spd:d.spd, hp:d.hp, maxhp:d.hp, atk:d.atk,
   ranged:!!d.ranged, onhit:d.onhit||null, boss:!!d.boss, elite:!!d.elite, side:'foe',
   nextAt:100/d.spd, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0}; }
@@ -666,23 +667,24 @@ async function advance(){
     a.fx={}; schedule(a); await sleep(520); return advance();
   }
   if(a.side==='foe'){ await foeTurn(a); return advance(); }
-  for(const id of a.abil){ if(a.cds[id]>0) a.cds[id]--; }
+  a.mp=Math.min(a.maxmp, a.mp+1);            // mana regen at the start of the hero's turn
   state.phase='select'; renderBar(); updateHint();
 }
 
 function updateHint(){
   const a=state.active, air=state.foes.find(f=>f.alive&&(f.fx.launch||f.fx.freeze));
-  if(a && a.id==='wisp' && air && a.cds.meteor===0)
-    hintEl.textContent=`✦ ${air.name} is vulnerable — DETONATE with Meteor for +${DETONATE_BONUS} damage!`;
-  else if(a && a.id==='brand') hintEl.textContent=`Brand's turn — Uppercut to launch the front enemy, then let Wisp detonate.`;
-  else if(a) hintEl.textContent=`Wisp's turn — Frostbite to set up, or Meteor to cash in a vulnerable enemy.`;
+  if(a && a.id==='wisp' && air && a.mp>=ABILITIES.meteor.cost)
+    hintEl.textContent=`✦ ${air.name} is vulnerable — DETONATE with Meteor (◆3) for +${DETONATE_BONUS} damage!`;
+  else if(a && a.id==='wisp' && air) hintEl.textContent=`${air.name} is vulnerable but you need ◆3 — basic-attack to build mana, then Meteor.`;
+  else if(a && a.id==='brand') hintEl.textContent=`Brand's turn — Slash builds mana; Uppercut (◆2) launches the front enemy.`;
+  else if(a) hintEl.textContent=`Wisp's turn — Arc Bolt builds mana; Frostbite (◆2) sets up, Meteor (◆3) cashes in.`;
   else hintEl.textContent='';
 }
 function frontFoe(){ return living(state.foes)[0]; }
 
 async function useAbility(id){
   const a=state.active, ab=ABILITIES[id];
-  if(state.phase!=='select'||!ab||a.cds[id]>0) return;
+  if(state.phase!=='select'||!ab||(a.mp||0) < (ab.cost||0)) return;
   if(ab.target==='front'){ const t=frontFoe(); if(t) await resolve(a,ab,id,t); }
   else if(ab.target==='back'){ const fl=living(state.foes); const t=fl[fl.length-1]; if(t) await resolve(a,ab,id,t); }
   else { state.phase='target'; state.pending={id,ab};
@@ -713,7 +715,8 @@ function spark(u){ const a=anchorOf(u); state.sparks.push({x:a.x, y:a.y-72*a.s, 
 function puff(u){ const a=anchorOf(u); state.puffs.push({x:a.x, y:a.y-1, t0:now()}); }
 
 async function resolve(actor,ab,id,target){
-  const myGen=state.gen; state.phase='anim'; renderBar(); actor.cds[id]=ab.cd;
+  const myGen=state.gen; state.phase='anim'; renderBar();
+  actor.mp = Math.min(actor.maxmp, (actor.mp||0) - (ab.cost||0) + (ab.gen||0));   // spend / build mana
   actor.lungeT=now(); puff(actor);
   let dmg=ab.dmg + (actor.side==='hero'?(run.atkBonus||0):0), deton=false;
   if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; state.shakeT=now();
@@ -772,9 +775,10 @@ function checkEnd(){
 function renderBar(){
   bar.innerHTML=''; const a=state.active;
   if(state.phase!=='select'||!a||a.side!=='hero') return;
-  for(const id of a.abil){ const ab=ABILITIES[id], cd=a.cds[id]||0;
-    const b=document.createElement('button'); b.className='actbtn'; b.disabled=cd>0;
-    b.innerHTML=`<span class="nm">${ab.name} <em>${cd>0?`<span class="cd">⟳ ${cd}</span>`:ab.tag}</em></span><span class="ds">${ab.desc}</span>`;
+  for(const id of a.abil){ const ab=ABILITIES[id], cost=ab.cost||0, afford=(a.mp||0)>=cost;
+    const b=document.createElement('button'); b.className='actbtn'; b.disabled=!afford;
+    const tag = cost>0 ? `<span class="mp">◆ ${cost}</span>` : (ab.gen?`<span class="mpgen">+${ab.gen} ◆</span>`:ab.tag);
+    b.innerHTML=`<span class="nm">${ab.name} <em>${tag}</em></span><span class="ds">${ab.desc}</span>`;
     b.onclick=()=>useAbility(id); bar.appendChild(b); }
 }
 
@@ -1064,6 +1068,8 @@ function drawPlate(u,a,front,active){
   ctx.fillStyle=hg; rr(bx,by,bw*pct,bh,4); ctx.fill();
   ctx.fillStyle='rgba(255,255,255,.28)'; if(pct>0){ rr(bx,by,bw*pct,bh*0.42,3); ctx.fill(); }
   ctx.fillStyle='#cdd6ea'; ctx.font='600 9px Segoe UI'; ctx.textAlign='right'; ctx.fillText(u.hp+'/'+u.maxhp,x+w-9,y+14+ (u.name.length>0?0:0));
+  if(u.side==='hero' && u.maxmp){ const pw=9, sx=a.x-(u.maxmp-1)*pw/2, py=y+39;
+    for(let k=0;k<u.maxmp;k++){ ctx.beginPath(); ctx.arc(sx+k*pw,py,3,0,7); ctx.fillStyle=k<(u.mp||0)?'#5ca8ff':'#222d44'; ctx.fill(); ctx.lineWidth=1; ctx.strokeStyle='#0a0f1b'; ctx.stroke(); } }
   if(front){ ctx.fillStyle='#ffcf5c'; ctx.font='700 9px Segoe UI'; ctx.textAlign='center'; ctx.fillText('▲ FRONT', a.x, y+44); }
 }
 
