@@ -118,6 +118,7 @@ let T = 0, RUN = true;            // T = anim clock; RUN gates the render loop (
 window.snap = (sc=0.66, q=0.62)=>{ const t=document.createElement('canvas'); t.width=Math.round(W*sc); t.height=Math.round(H*sc);
   t.getContext('2d').drawImage(cv,0,0,t.width,t.height); return t.toDataURL('image/jpeg',q).split(',')[1]; };
 let fadeT = 0;                    // screen-fade transition timestamp
+let footprints = [];              // village footstep marks
 
 // ---------- audio: synthesized SFX (no files, single-file friendly) ----------
 let actx=null, muted=false;
@@ -294,13 +295,43 @@ function startExpedition(){ mode='map'; fadeT=now(); SFX.start(); syncCoach(); }
 
 // ---- home village (hub) ----
 const BUILDINGS=[
-  {key:'plate',  label:'Blacksmith', x:150, roof:'#7a3b3b'},
-  {key:'blades', label:'Armory',     x:340, roof:'#3b5a7a'},
-  {key:'purse',  label:'Market',     x:530, roof:'#3b7a45'},
+  {key:'plate',  label:'Blacksmith', icon:'anvil'},
+  {key:'blades', label:'Armory',     icon:'swords'},
+  {key:'purse',  label:'Market',     icon:'coin'},
 ];
-const GATE={x:706};
-function buildingRect(b){ return {x:b.x-58, y:214, w:116, h:132}; }
-function gateRect(){ return {x:GATE.x-50, y:240, w:100, h:116}; }
+const VP={w:208,h:152,y:62,gap:20};
+function buildingRect(i){ const x0=(W-(3*VP.w+2*VP.gap))/2; return {x:x0+i*(VP.w+VP.gap), y:VP.y, w:VP.w, h:VP.h}; }
+function embarkRect(){ return {x:W/2-170, y:250, w:340, h:46}; }
+function ornateFrame(x,y,w,h,glow){
+  ctx.save(); if(glow){ ctx.shadowColor=glow; ctx.shadowBlur=15; }
+  let g=ctx.createLinearGradient(0,y,0,y+h); g.addColorStop(0,'#241d36'); g.addColorStop(1,'#120e20'); ctx.fillStyle=g; rr(x,y,w,h,9); ctx.fill(); ctx.restore();
+  ctx.fillStyle='rgba(255,255,255,.05)'; rr(x+3,y+3,w-6,h*0.34,7); ctx.fill();
+  ctx.strokeStyle='#c9a14a'; ctx.lineWidth=2.5; rr(x+2,y+2,w-4,h-4,8); ctx.stroke();
+  ctx.strokeStyle='rgba(201,161,74,.4)'; ctx.lineWidth=1; rr(x+5,y+5,w-10,h-10,6); ctx.stroke();
+  ctx.fillStyle='#e7c66a'; [[x+9,y+9],[x+w-9,y+9],[x+9,y+h-9],[x+w-9,y+h-9]].forEach(p=>{ circle(p[0],p[1],2.2); ctx.fill(); });
+}
+function villageIcon(key,x,y){ ctx.save(); ctx.strokeStyle='#ffe9a8'; ctx.fillStyle='#ffe9a8'; ctx.lineWidth=3; ctx.lineCap='round'; ctx.lineJoin='round';
+  if(key==='anvil'){ ctx.fillRect(x-15,y-2,30,8); ctx.beginPath(); ctx.moveTo(x-11,y+6); ctx.lineTo(x+11,y+6); ctx.lineTo(x+6,y+15); ctx.lineTo(x-6,y+15); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(x-15,y-1); ctx.lineTo(x-22,y-6); ctx.stroke(); }
+  else if(key==='swords'){ ctx.beginPath(); ctx.moveTo(x-13,y+13); ctx.lineTo(x+13,y-13); ctx.moveTo(x+13,y+13); ctx.lineTo(x-13,y-13); ctx.stroke(); }
+  else if(key==='coin'){ ctx.beginPath(); ctx.arc(x,y,14,0,7); ctx.stroke(); ctx.font='700 19px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('$',x,y+1); ctx.textBaseline='alphabetic'; }
+  ctx.restore();
+}
+function wrapText(text,cx,y,maxw,lh){ const words=text.split(' '); let line='', yy=y;
+  for(const w of words){ const test=line?line+' '+w:w; if(ctx.measureText(test).width>maxw && line){ ctx.fillText(line,cx,yy); line=w; yy+=lh; } else line=test; }
+  if(line) ctx.fillText(line,cx,yy); }
+function updateVillageWander(){ if(!run) return;
+  for(const h of run.heroes){
+    if(h.vx==null){ h.vx=140+Math.random()*360; h.tx=h.vx; h.vface=1; h.wph=Math.random()*6; h.rest=30+Math.floor(Math.random()*60); h._fp=h.vx; }
+    if(h.rest>0){ h.rest--; continue; }
+    const dx=h.tx-h.vx;
+    if(Math.abs(dx)<3){ h.rest=50+Math.floor(Math.random()*90); h.tx=70+Math.random()*640; continue; }
+    const dir=dx<0?-1:1; h.vface=dir; h.vx+=dir*1.1; h.wph+=0.2;
+    if(Math.abs(h.vx-h._fp)>=22){ footprints.push({x:h.vx, y:418, t0:now()}); h._fp=h.vx; }
+  }
+}
+function drawFootprints(){ for(const f of footprints){ const p=(now()-f.t0)/1500; if(p>=1) continue;
+  ctx.save(); ctx.globalAlpha=(1-p)*0.35; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(f.x,f.y,4,2.2,0,0,7); ctx.fill(); ctx.restore(); }
+  footprints=footprints.filter(f=>(now()-f.t0)<1500); }
 function openBuildingModal(key){
   const u=META_UPGRADES[key], lvl=meta.up[key]||0, maxed=lvl>=u.max, cost=u.cost(lvl);
   const body=`${u.desc}.<br>Level <b>${lvl}/${u.max}</b><br><br>You have <b>${meta.renown} Renown</b>.`;
@@ -312,37 +343,36 @@ function openBuildingModal(key){
   openModal(u.name, body, btns);
 }
 function drawVillage(){
-  drawBackground();
-  ctx.fillStyle='rgba(8,12,22,.32)'; ctx.fillRect(0,52,W,H-52);
-  for(const b of BUILDINGS) drawShop(b);
-  drawGate();
-  if(run){ drawCharacter(run.heroes[0], {x:108,y:402,s:0.92}, false, true);
-           drawCharacter(run.heroes[1], {x:62,y:404,s:0.86}, false, true); }
-  ctx.fillStyle='#ffe9a8'; ctx.font='900 27px Segoe UI'; ctx.textAlign='center'; ctx.lineWidth=6; ctx.lineJoin='round'; ctx.strokeStyle='#1a1320';
-  ctx.strokeText('HOME VILLAGE', W/2, 86); ctx.fillText('HOME VILLAGE', W/2, 86);
-  ctx.fillStyle='rgba(40,26,12,.85)'; ctx.fillRect(0,H-32,W,32); ctx.textBaseline='middle';
-  ctx.fillStyle='#ffd76a'; ctx.font='700 14px Segoe UI'; ctx.textAlign='left'; ctx.fillText('◈ '+meta.renown+' Renown', 14, H-16);
-  ctx.textAlign='right'; ctx.fillStyle='#cfd8ee'; ctx.font='600 12px Segoe UI';
-  ctx.fillText('Click a shop to upgrade · enter the gate to begin', W-14, H-16); ctx.textBaseline='alphabetic';
-}
-function drawShop(b){
-  const baseY=346, bx=b.x;
-  ctx.fillStyle='#cdab82'; ctx.fillRect(bx-46,baseY-86,92,86);
-  ctx.strokeStyle='#5a3b1e'; ctx.lineWidth=2; ctx.strokeRect(bx-46,baseY-86,92,86);
-  ctx.fillStyle=b.roof; ctx.beginPath(); ctx.moveTo(bx-57,baseY-86); ctx.lineTo(bx,baseY-124); ctx.lineTo(bx+57,baseY-86); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle='#5a3b1e'; ctx.fillRect(bx-13,baseY-42,26,42);
-  ctx.fillStyle='#ffe08a'; ctx.fillRect(bx-34,baseY-66,17,17); ctx.fillRect(bx+17,baseY-66,17,17);
-  const lvl=meta.up[b.key]||0, mx=META_UPGRADES[b.key].max;
-  ctx.fillStyle='#2b1d10'; ctx.fillRect(bx-46,baseY-106,92,18);
-  ctx.fillStyle='#ffe9a8'; ctx.font='700 11.5px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText(`${b.label}  ${lvl}/${mx}`, bx, baseY-97); ctx.textBaseline='alphabetic';
-}
-function drawGate(){
-  const x=GATE.x, baseY=346;
-  ctx.fillStyle='#6a5230'; ctx.fillRect(x-42,254,16,baseY-254); ctx.fillRect(x+26,254,16,baseY-254); ctx.fillRect(x-46,244,92,16);
-  ctx.fillStyle='#c0392b'; ctx.beginPath(); ctx.moveTo(x-30,260); ctx.lineTo(x+30,260); ctx.lineTo(x+22,292); ctx.lineTo(x-22,292); ctx.closePath(); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.font='700 12px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('EXPEDITION', x, 274);
-  const a=0.5+0.5*Math.sin(now()/300); ctx.globalAlpha=a; ctx.fillStyle='#ffcf5c'; ctx.font='700 14px Segoe UI'; ctx.fillText('▶ Enter', x, 330); ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
+  // dark ornate backdrop (Monster Train-style)
+  let g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#1a1428'); g.addColorStop(1,'#0a0712'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  let eg=ctx.createRadialGradient(W/2,130,40,W/2,170,440); eg.addColorStop(0,'rgba(150,80,190,.16)'); eg.addColorStop(1,'rgba(150,80,190,0)'); ctx.fillStyle=eg; ctx.fillRect(0,0,W,H);
+  // header bar
+  ctx.fillStyle='#0c0914'; ctx.fillRect(0,0,W,46); ctx.strokeStyle='#c9a14a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,46); ctx.lineTo(W,46); ctx.stroke();
+  ctx.fillStyle='#ffe9a8'; ctx.font='700 21px Georgia, serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('H O M E   V I L L A G E', W/2, 24);
+  ctx.fillStyle='#ffd76a'; ctx.font='700 14px Segoe UI'; ctx.textAlign='right'; ctx.fillText('◈ '+meta.renown+' Renown', W-16, 24); ctx.textBaseline='alphabetic';
+  // upgrade panels
+  for(let i=0;i<BUILDINGS.length;i++){ const b=BUILDINGS[i], r=buildingRect(i), u=META_UPGRADES[b.key];
+    const lvl=meta.up[b.key]||0, maxed=lvl>=u.max, cost=u.cost(lvl), afford=!maxed&&meta.renown>=cost, cx=r.x+r.w/2;
+    ornateFrame(r.x,r.y,r.w,r.h, afford?'#e7c66a':null);
+    villageIcon(b.icon, cx, r.y+38);
+    ctx.fillStyle='#ffe9a8'; ctx.font='700 16px Georgia, serif'; ctx.textAlign='center'; ctx.fillText(b.label, cx, r.y+72);
+    ctx.fillStyle='#b3a6c8'; ctx.font='600 11px Segoe UI'; wrapText(u.desc, cx, r.y+90, r.w-30, 14);
+    const px=cx-(u.max-1)*8; for(let k=0;k<u.max;k++){ ctx.fillStyle=k<lvl?'#ffd76a':'#322c48'; circle(px+k*16,r.y+r.h-40,4.5); ctx.fill();
+      ctx.lineWidth=1; ctx.strokeStyle='#5a527a'; circle(px+k*16,r.y+r.h-40,4.5); ctx.stroke(); }
+    ctx.fillStyle=maxed?'#7fd0a0':(afford?'#ffd76a':'#8a7e9e'); ctx.font='700 13px Segoe UI'; ctx.textAlign='center';
+    ctx.fillText(maxed?'✓ MAXED':('Upgrade — '+cost+' ◈'), cx, r.y+r.h-15);
+  }
+  // embark button
+  const er=embarkRect(); ctx.save(); ctx.shadowColor='rgba(255,140,40,.55)'; ctx.shadowBlur=16+6*Math.sin(now()/300);
+  let bg=ctx.createLinearGradient(0,er.y,0,er.y+er.h); bg.addColorStop(0,'#7a2f12'); bg.addColorStop(1,'#491a08'); ctx.fillStyle=bg; rr(er.x,er.y,er.w,er.h,10); ctx.fill(); ctx.restore();
+  ctx.strokeStyle='#e7c66a'; ctx.lineWidth=2.5; rr(er.x,er.y,er.w,er.h,10); ctx.stroke();
+  ctx.fillStyle='#ffe9c0'; ctx.font='700 19px Georgia, serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('EMBARK  ▶', W/2, er.y+er.h/2); ctx.textBaseline='alphabetic';
+  // diorama strip with the wandering party
+  ctx.fillStyle='rgba(8,5,14,.55)'; ctx.fillRect(0,304,W,H-304);
+  let gl=ctx.createLinearGradient(0,304,0,344); gl.addColorStop(0,'rgba(150,80,190,.12)'); gl.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=gl; ctx.fillRect(0,304,W,40);
+  updateVillageWander(); drawFootprints();
+  if(run) for(const h of run.heroes) drawCharacter(h, {x:h.vx, y:418, s:0.72}, false, true, {faceDir:h.vface, walk:(h.rest>0?null:h.wph)});
+  ctx.fillStyle='#8a7ea2'; ctx.font='600 11.5px Segoe UI'; ctx.textAlign='center'; ctx.fillText('Click a building to upgrade · press EMBARK to begin an expedition', W/2, H-10);
 }
 
 // ---- guided tutorial (screen-gated coach) ----
@@ -600,8 +630,8 @@ cv.addEventListener('click', async e=>{
   if(mode==='title'){ resumeAudio(); SFX.start(); mode='village'; fadeT=now();
     if(!meta.seenTut && tutStep<0) startTutorial(); else syncCoach(); return; }
   if(mode==='village'){
-    for(const b of BUILDINGS){ if(inRect(mx,my,buildingRect(b))){ SFX.click(); openBuildingModal(b.key); return; } }
-    if(inRect(mx,my,gateRect())){ startExpedition(); return; }
+    for(let i=0;i<BUILDINGS.length;i++){ if(inRect(mx,my,buildingRect(i))){ SFX.click(); openBuildingModal(BUILDINGS[i].key); return; } }
+    if(inRect(mx,my,embarkRect())){ startExpedition(); return; }
     return; }
   if(mode==='map'){
     for(const n of availableNodes()){ const dx=mx-n.x, dy=my-n.y; if(dx*dx+dy*dy <= 24*24){ enterNode(n); return; } }
@@ -620,7 +650,7 @@ function puff(u){ const a=anchorOf(u); state.puffs.push({x:a.x, y:a.y-1, t0:now(
 
 async function resolve(actor,ab,id,target){
   const myGen=state.gen; state.phase='anim'; renderBar(); actor.cds[id]=ab.cd;
-  actor.lungeT=now();
+  actor.lungeT=now(); puff(actor);
   let dmg=ab.dmg + (actor.side==='hero'?(run.atkBonus||0):0), deton=false;
   if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; state.shakeT=now();
     if(run.lifesteal){ actor.hp=Math.min(actor.maxhp,actor.hp+run.lifesteal); floatText(actor,'+'+run.lifesteal,'#46d27a'); SFX.heal(); } }
@@ -655,7 +685,7 @@ async function foeTurn(f){
   state.phase='anim'; renderBar(); hintEl.textContent=''; await sleep(360);
   const hs=living(state.heroes); if(!hs.length) return;
   const roll=()=>f.atk+Math.floor(Math.random()*3)-1;
-  f.lungeT=now(); await sleep(150);
+  f.lungeT=now(); puff(f); await sleep(150);
   if(f.boss && Math.random()<0.35){            // boss cleave — hits the whole party
     log(`<b>${f.name}</b> CLEAVES the whole party!`,'det'); state.shakeT=now(); state.flash=0.7;
     for(const h of hs) hurtHero(h,roll(),null);
@@ -769,10 +799,11 @@ function drawScene(){
   for(const it of list) drawCharacter(it.u, it.a, it.front);
 }
 
-function drawCharacter(u,a,front,hidePlate){
+function drawCharacter(u,a,front,hidePlate,opts){
+  opts=opts||{};
   const A=u.art, t=now();
-  const active = !!state && u===state.active && state.phase!=='over';
-  const facing = u.side==='hero' ? 1 : -1;
+  const active = mode==='battle' && !!state && u===state.active && state.phase!=='over';
+  const facing = opts.faceDir!=null ? opts.faceDir : (u.side==='hero' ? 1 : -1);
   const launched = !!u.fx.launch;
   const ph=u.bobPhase, idle=A.idle||'calm';
   let baseBob, leanR=0, jit=0;
@@ -780,8 +811,13 @@ function drawCharacter(u,a,front,hidePlate){
   else if(idle==='fidget'){ baseBob=Math.sin(t/205+ph)*1.6; jit=Math.sin(t/88+ph*2)*1.3; } // goblin twitch
   else if(idle==='sway'){ baseBob=Math.sin(t/680+ph)*2; leanR=Math.sin(t/680+ph)*0.05; }   // brute lean
   else { baseBob=Math.sin(t/430+ph)*2.5; }
-  const bob = baseBob + (launched ? -14 - Math.abs(Math.sin(t/160))*6 : 0);
-  let lx=jit; if(u.lungeT){ const p=(t-u.lungeT)/300; if(p<1) lx+=Math.sin(p*Math.PI)*22*facing; }
+  // stride: village walking (opts.walk) or a combat step-in lunge -> animate legs/arms + step bounce
+  let strideP=0, strideI=0, lungeOff=0;
+  if(opts.walk!=null){ strideP=opts.walk; strideI=1; }
+  else if(u.lungeT){ const p=(t-u.lungeT)/320; if(p<1){ strideP=p*Math.PI*3; strideI=Math.sin(p*Math.PI); lungeOff=Math.sin(p*Math.PI)*30*facing; } }
+  const gait=Math.sin(strideP)*strideI;
+  const bob = baseBob + (launched ? -14 - Math.abs(Math.sin(t/160))*6 : 0) - Math.abs(gait)*3;
+  const lx=jit+lungeOff;
   let shake=0; if(u.hitT){ const p=(t-u.hitT)/180; if(p<1) shake=Math.sin(p*40)*3*(1-p); }
   const hitGlow = u.hitT && (t-u.hitT)<170;
 
@@ -805,19 +841,27 @@ function drawCharacter(u,a,front,hidePlate){
   const big = A.big;
   if(A.boss) ctx.scale(1.36,1.32); else if(big) ctx.scale(1.18,1.16);
 
+  // flowing cape (knights / boss) — behind the body, sways with motion
+  if(A.shield){ const sway=Math.sin(t/430+ph)*2 + gait*5;
+    ctx.fillStyle=A.dark; ctx.beginPath(); ctx.moveTo(-12,-82); ctx.lineTo(-16,-80);
+    ctx.quadraticCurveTo(-30+sway,-44, -22+sway,-2); ctx.lineTo(-2,-4);
+    ctx.quadraticCurveTo(-8,-44, -2,-82); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle=OL; ctx.lineWidth=2; ctx.stroke(); }
+
   // shield on back (brand)
   if(A.shield){ ctx.fillStyle=A.trim; circle(-14,-58,13); ctx.fill(); ctx.stroke();
     ctx.fillStyle=A.dark; circle(-14,-58,6); ctx.fill(); }
 
-  // back arm + weapon held behind for bow drawn later
+  // back arm (swings opposite the legs)
   ctx.fillStyle=A.dark;
-  rr(-16,-74,11,30,5); ctx.fill(); ctx.stroke();      // back arm
+  rr(-16-gait*5,-74,11,30,5); ctx.fill(); ctx.stroke();
 
-  // legs
-  ctx.fillStyle=A.dark; rr(-15,-30,12,30,5); ctx.fill(); ctx.stroke();
-  rr(4,-30,12,30,5); ctx.fill(); ctx.stroke();
-  ctx.fillStyle='#2a2030'; rr(-18,-7,17,8,3); ctx.fill(); ctx.stroke(); // boots
-  rr(2,-7,17,8,3); ctx.fill(); ctx.stroke();
+  // legs + boots (animate with gait)
+  const lg=gait*6;
+  ctx.fillStyle=A.dark; rr(-15+lg,-30,12,30,5); ctx.fill(); ctx.stroke();
+  rr(4-lg,-30,12,30,5); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#2a2030'; rr(-18+lg,-7,17,8,3); ctx.fill(); ctx.stroke();
+  rr(2-lg,-7,17,8,3); ctx.fill(); ctx.stroke();
 
   // torso
   let tg=ctx.createLinearGradient(0,-84,0,-26); tg.addColorStop(0,A.main); tg.addColorStop(1,A.dark);
