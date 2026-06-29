@@ -185,13 +185,13 @@ const BURN_DMG = 4, BURN_TURNS = 3, BLEED_DMG = 3, BLEED_TURNS = 3;
 
 // ---------- art palettes ----------
 const ART = {
-  brand: {skin:'#f1c9a5', main:'#e8902f', dark:'#a85d12', trim:'#ffd98a', gear:'helmet', weapon:'sword', shield:true, idle:'calm'},
-  wisp:  {skin:'#f1c9a5', main:'#3f78d8', dark:'#264a8a', trim:'#9fd6ff', gear:'wizhat', weapon:'staff', idle:'float'},
-  grunt: {skin:'#7cc36a', main:'#5a8f3c', dark:'#3a6326', trim:'#bdf09a', gear:'none',   weapon:'club', ears:true, idle:'fidget'},
-  brute: {skin:'#caa0d8', main:'#a64b86', dark:'#6e2c58', trim:'#e3a7d2', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
-  archer:{skin:'#e8b98e', main:'#c47a3a', dark:'#8a5022', trim:'#f0c98a', gear:'hood',   weapon:'bow', idle:'calm'},
-  elite: {skin:'#b58fcf', main:'#8f3030', dark:'#591c1c', trim:'#f0a85a', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
-  boss:  {skin:'#c7b89c', main:'#3b3656', dark:'#201d30', trim:'#e85a6b', gear:'helmet', weapon:'sword', shield:true, big:true, idle:'calm'},
+  brand: {skin:'#c2a07e', main:'#a4632a', dark:'#3e2410', trim:'#c8a04a', gear:'helmet', weapon:'sword', shield:true, idle:'calm'},
+  wisp:  {skin:'#c2a07e', main:'#39597f', dark:'#172738', trim:'#7fa6c4', gear:'wizhat', weapon:'staff', idle:'float'},
+  grunt: {skin:'#6f9457', main:'#46602f', dark:'#1f2c12', trim:'#8aa860', gear:'none',   weapon:'club', ears:true, idle:'fidget'},
+  brute: {skin:'#9c7e9e', main:'#6e3a52', dark:'#311925', trim:'#9a6a82', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
+  archer:{skin:'#c2a07e', main:'#8a5a30', dark:'#3e2814', trim:'#b0875a', gear:'hood',   weapon:'bow', idle:'calm'},
+  elite: {skin:'#9c7e9e', main:'#7a2626', dark:'#2e1010', trim:'#c07a3a', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
+  boss:  {skin:'#b7a890', main:'#2e2a42', dark:'#15121f', trim:'#c0392b', gear:'helmet', weapon:'sword', shield:true, big:true, idle:'calm'},
 };
 
 // ---- optional sprite-sheet art (drop PNGs in assets/, falls back to vector if absent) ----
@@ -899,8 +899,8 @@ function drawCharacter(u,a,front,hidePlate,opts){
   if(leanR) ctx.rotate(leanR);
   ctx.scale(facing*a.s, a.s);
 
-  const OL='#1a1320';                         // outline
-  ctx.lineJoin='round'; ctx.lineWidth=2.4; ctx.strokeStyle=OL;
+  const OL='#0b0910';                         // heavy near-black ink outline (Mignola/DD)
+  ctx.lineJoin='round'; ctx.lineWidth=3.1; ctx.strokeStyle=OL;
   const big = A.big;
   if(A.boss) ctx.scale(1.36,1.32); else if(big) ctx.scale(1.18,1.16);
 
@@ -931,14 +931,14 @@ function drawCharacter(u,a,front,hidePlate,opts){
   ctx.fillStyle='#2a2030'; rr(-18+lg,-7,17,8,3); ctx.fill(); ctx.stroke();
   rr(2-lg,-7,17,8,3); ctx.fill(); ctx.stroke();
 
-  // torso
-  let tg=ctx.createLinearGradient(0,-84,0,-26); tg.addColorStop(0,A.main); tg.addColorStop(1,A.dark);
+  // torso (deep spot-black shadow at the base)
+  let tg=ctx.createLinearGradient(0,-84,0,-26); tg.addColorStop(0,A.main); tg.addColorStop(.62,A.dark); tg.addColorStop(1,'#0e0b14');
   ctx.fillStyle=tg; rr(-22,-84,44,56,13); ctx.fill(); ctx.stroke();
   if(u.side==='hero'){ ctx.fillStyle=A.trim; rr(-7,-82,14,38,3); ctx.fill(); } // tabard stripe
   ctx.fillStyle=A.dark; rr(-22,-44,44,8,3); ctx.fill();   // belt
   ctx.fillStyle=A.trim; rr(-4,-44,8,8,2); ctx.fill();     // buckle
-  if(u.side==='hero'){ ctx.fillStyle=A.main;               // pauldrons
-    rr(-30,-85,18,14,7); ctx.fill(); ctx.stroke(); rr(12,-85,18,14,7); ctx.fill(); ctx.stroke(); }
+  if(u.side==='hero'){ ctx.fillStyle=A.main;               // pauldrons (bulked for silhouette)
+    rr(-33,-88,21,17,8); ctx.fill(); ctx.stroke(); rr(12,-88,21,17,8); ctx.fill(); ctx.stroke(); }
 
   // head
   ctx.fillStyle=A.skin; circle(4,-100,17); ctx.fill(); ctx.stroke();
@@ -985,6 +985,11 @@ function drawCharacter(u,a,front,hidePlate,opts){
     ctx.strokeStyle='#e8e0c8'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(16,-56); ctx.lineTo(16,-4); ctx.stroke(); ctx.lineWidth=2.4; ctx.strokeStyle=OL; }
   ctx.restore();
 
+  // torch rim-light: hard warm edge on the lit side (DD drama)
+  ctx.strokeStyle='rgba(255,214,150,.55)'; ctx.lineWidth=2.2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(4,-100,17,-Math.PI*0.95,-Math.PI*0.05); ctx.stroke();   // head top rim
+  ctx.beginPath(); ctx.moveTo(21,-80); ctx.lineTo(22,-46); ctx.stroke();           // torso front rim
+  ctx.lineCap='butt'; ctx.lineWidth=3.1; ctx.strokeStyle=OL;
   } // end vector body (sprite override skips it)
   // frozen overlay
   if(u.fx.freeze){ ctx.fillStyle='rgba(116,224,255,.30)'; rr(-26,-118,52,96,12); ctx.fill();
