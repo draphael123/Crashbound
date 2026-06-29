@@ -12,7 +12,10 @@
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:radial-gradient(120% 120% at 50% -10%,#1a2236 0%,#0b0f1a 70%);color:var(--ink);
     font-family:"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  #wrap{max-width:820px;margin:0 auto;padding:14px 14px 28px}
+  #wrap{max-width:820px;margin:0 auto;padding:14px 14px 28px;position:relative}
+  #mute{position:absolute;right:24px;top:62px;z-index:6;background:rgba(22,29,46,.85);border:1px solid var(--line);
+    color:var(--ink);border-radius:8px;padding:4px 9px;cursor:pointer;font-size:14px;line-height:1}
+  #mute:hover{border-color:var(--gold)}
   h1{font-size:20px;margin:4px 2px 2px;letter-spacing:.5px}
   h1 span{color:var(--gold)}
   .sub{color:var(--muted);font-size:12.5px;margin:0 2px 10px}
@@ -54,13 +57,14 @@
 <div id="wrap">
   <h1>CRASH<span>BOUND</span> — battle prototype</h1>
   <p class="sub">Phase 1 · proving the launch→detonate combo. Faster fighters act sooner on the timeline up top.</p>
+  <button id="mute" onclick="toggleMute()" title="Mute / unmute">🔊</button>
   <canvas id="stage" width="792" height="448"></canvas>
   <div id="hint"></div>
   <div id="bar"></div>
   <div id="log"></div>
 </div>
 
-<div id="intro" class="overlay">
+<div id="intro" class="overlay hidden">
   <div class="card">
     <h2>How the combo works</h2>
     <p style="text-align:left">
@@ -73,7 +77,7 @@
     <p style="text-align:left;color:#74e0ff">Launching/freezing also shoves the enemy back on the timeline, so they lose their turn. Trade that lock for damage by detonating.</p>
     <p style="text-align:left">Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (damage over time), and <b>Gust</b> yanks the back enemy into melee.</p>
     <p style="text-align:left;color:#ffcf5c">Climb a branching map — <b>B</b>attles, <b>E</b>lites, <b>$</b>hops, <b>R</b>est, <b>?</b> events — to reach the <b>W</b>arlord. HP carries between fights; spend gold on heals & upgrades. Party wipe ends the run (the map reshuffles).</p>
-    <button onclick="document.getElementById('intro').classList.add('hidden')">Begin the run</button>
+    <button onclick="beginRun()">Begin the run</button>
   </div>
 </div>
 
@@ -103,6 +107,47 @@ let T = 0, RUN = true;            // T = anim clock; RUN gates the render loop (
 // debug capture: returns the canvas as base64 JPEG (no data: prefix) so it can be decoded to a viewable file
 window.snap = (sc=0.66, q=0.62)=>{ const t=document.createElement('canvas'); t.width=Math.round(W*sc); t.height=Math.round(H*sc);
   t.getContext('2d').drawImage(cv,0,0,t.width,t.height); return t.toDataURL('image/jpeg',q).split(',')[1]; };
+let fadeT = 0;                    // screen-fade transition timestamp
+
+// ---------- audio: synthesized SFX (no files, single-file friendly) ----------
+let actx=null, muted=false;
+function ac(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } return actx; }
+function resumeAudio(){ const a=ac(); if(a && a.state==='suspended') a.resume(); }
+function toggleMute(){ muted=!muted; const b=document.getElementById('mute'); if(b) b.textContent=muted?'🔇':'🔊'; }
+function tone(freq,dur,{type='square',vol=0.16,slide=0,delay=0,atk=0.004}={}){
+  const a=ac(); if(!a||muted) return; const t=a.currentTime+delay;
+  const o=a.createOscillator(), g=a.createGain(); o.type=type; o.frequency.setValueAtTime(freq,t);
+  if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(20,freq*slide),t+dur);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+atk);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t+dur+0.03);
+}
+function noise(dur,{vol=0.2,delay=0,hp=0}={}){
+  const a=ac(); if(!a||muted) return; const t=a.currentTime+delay;
+  const n=Math.floor(a.sampleRate*dur), buf=a.createBuffer(1,n,a.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+  const src=a.createBufferSource(); src.buffer=buf; const g=a.createGain();
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  let node=src; if(hp){ const f=a.createBiquadFilter(); f.type='highpass'; f.frequency.value=hp; node.connect(f); node=f; }
+  node.connect(g).connect(a.destination); src.start(t); src.stop(t+dur+0.02);
+}
+const SFX={
+  click:()=>tone(420,0.06,{type:'triangle',vol:0.1}),
+  select:()=>tone(560,0.1,{type:'triangle',vol:0.13,slide:1.5}),
+  hit:()=>{ noise(0.11,{vol:0.16,hp:800}); tone(180,0.1,{type:'square',vol:0.1,slide:0.5}); },
+  heavy:()=>{ noise(0.2,{vol:0.24,hp:350}); tone(90,0.18,{type:'sawtooth',vol:0.16,slide:0.5}); },
+  launch:()=>tone(280,0.24,{type:'sine',vol:0.15,slide:3.2}),
+  freeze:()=>{ tone(950,0.26,{type:'sine',vol:0.12,slide:0.55}); tone(1300,0.2,{type:'sine',vol:0.07,delay:0.03}); },
+  detonate:()=>{ noise(0.4,{vol:0.3,hp:180}); tone(110,0.45,{type:'sawtooth',vol:0.22,slide:0.4}); tone(220,0.3,{type:'square',vol:0.12}); },
+  burn:()=>noise(0.18,{vol:0.1,hp:1200}),
+  bleed:()=>tone(150,0.12,{type:'sawtooth',vol:0.09,slide:0.6}),
+  heal:()=>{ tone(523,0.12,{type:'sine',vol:0.12}); tone(784,0.2,{type:'sine',vol:0.12,delay:0.08}); },
+  coin:()=>{ tone(1050,0.07,{type:'square',vol:0.11}); tone(1500,0.1,{type:'square',vol:0.09,delay:0.06}); },
+  start:()=>{ tone(330,0.1,{type:'square',vol:0.13}); tone(440,0.13,{type:'square',vol:0.13,delay:0.08}); },
+  boss:()=>{ tone(68,0.7,{type:'sawtooth',vol:0.26,slide:0.7}); noise(0.5,{vol:0.16,hp:110}); },
+  win:()=>[523,659,784,1046].forEach((f,i)=>tone(f,0.24,{type:'triangle',vol:0.15,delay:i*0.13})),
+  lose:()=>[440,330,247,165].forEach((f,i)=>tone(f,0.32,{type:'sawtooth',vol:0.15,delay:i*0.15})),
+};
 
 // ---------- ability definitions (data-driven) ----------
 const ABILITIES = {
@@ -222,7 +267,7 @@ function availableNodes(){
   if(run.node.r>=MAP_ROWS-1) return [];
   return run.node.next.map(j=>run.map[run.node.r+1][j]);
 }
-function enterNode(n){ run.node=n;
+function enterNode(n){ run.node=n; SFX.select();
   if(n.type==='rest') openRest(); else if(n.type==='shop') openShop();
   else if(n.type==='event') openEvent(); else startBattle(n); }
 
@@ -234,17 +279,18 @@ function battleState(foeIds,node){
 }
 function startBattle(node){
   const ids = node.type==='boss'?bossFoes() : node.type==='elite'?eliteFoes(node.r) : battleFoes(node.r);
-  state=battleState(ids,node); mode='battle';
+  state=battleState(ids,node); mode='battle'; fadeT=now();
+  node.type==='boss' ? SFX.boss() : SFX.start();
   logEl.innerHTML=''; log(`A ${node.type==='boss'?'<b>BOSS</b>':node.type==='elite'?'<b>elite</b>':'battle'} blocks the path. Fight!`);
   advance();
 }
 function onBattleWon(node){
-  node.done=true; run.cleared++; mode='map';
+  node.done=true; run.cleared++; mode='map'; fadeT=now();
   state.phase='over'; bar.innerHTML=''; hintEl.textContent='';
   run.heroes.forEach(h=>{ if(h.hp<=0){ h.hp=Math.ceil(h.maxhp*0.25); h.alive=true; } });
   if(node.type==='boss'){ showEnd(true); return; }
   const gold = node.type==='elite' ? 24+rnd(16) : 11+rnd(9);
-  run.gold+=gold;
+  run.gold+=gold; SFX.coin();
   if(node.type==='elite'){
     const ch=pickUpgrades(2);
     openModal('Elite defeated!', `Looted <b>${gold} gold</b>. Choose a spoil:<br>`+ch.map(u=>`• <b>${u.name}</b> — ${u.desc}`).join('<br>'),
@@ -253,6 +299,7 @@ function onBattleWon(node){
 }
 function onRunLost(){ mode='map'; state.phase='over'; bar.innerHTML=''; hintEl.textContent=''; showEnd(false); }
 function showEnd(win){
+  win?SFX.win():SFX.lose();
   document.getElementById('endTitle').textContent = win?'The Warlord falls!':'Your party is slain';
   document.getElementById('endTitle').className = win?'win':'lose';
   document.getElementById('endBody').innerHTML = win
@@ -263,7 +310,7 @@ function showEnd(win){
 
 // ---- node modals (rest / shop / event) ----
 function openRest(){ openModal('Campfire', 'You make camp. Rest and recover your strength.',
-  [{label:'Rest — heal 40% HP', onclick:()=>{ run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.4)); }); run.node.done=true; closeModal(); }}]); }
+  [{label:'Rest — heal 40% HP', onclick:()=>{ run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.4)); }); SFX.heal(); run.node.done=true; closeModal(); }}]); }
 function openShop(){
   const items=[{label:()=>'Heal 35% — 15g', cost:15, act:()=>run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.35)); })}];
   pickUpgrades(2).forEach((u,i)=>{ const c=18+i*5; items.push({label:()=>`${u.name} (${u.desc}) — ${c}g`, cost:c, act:u.apply}); });
@@ -272,7 +319,7 @@ function openShop(){
 function renderShop(items){
   openModal('Wandering Merchant', `<b>Your gold: ${run.gold}</b>`,
     items.map(it=>({label:it.label(), disabled: it.bought||run.gold<it.cost,
-      onclick:()=>{ if(!it.bought&&run.gold>=it.cost){ run.gold-=it.cost; it.act(); it.bought=true; renderShop(items); } }}))
+      onclick:()=>{ if(!it.bought&&run.gold>=it.cost){ run.gold-=it.cost; it.act(); it.bought=true; SFX.coin(); renderShop(items); } }}))
     .concat([{label:'Leave shop', onclick:()=>{ run.node.done=true; closeModal(); }}]));
 }
 function openEvent(){ const e=pick(EVENTS);
@@ -282,7 +329,7 @@ function openEvent(){ const e=pick(EVENTS);
 function openModal(title,html,buttons){
   document.getElementById('mTitle').innerHTML=title; document.getElementById('mBody').innerHTML=html;
   const bb=document.getElementById('mBtns'); bb.innerHTML='';
-  buttons.forEach(b=>{ const el=document.createElement('button'); el.textContent=b.label; el.disabled=!!b.disabled; el.onclick=b.onclick; bb.appendChild(el); });
+  buttons.forEach(b=>{ const el=document.createElement('button'); el.textContent=b.label; el.disabled=!!b.disabled; el.onclick=(...a)=>{ SFX.click(); b.onclick(...a); }; bb.appendChild(el); });
   document.getElementById('modal').classList.remove('hidden');
 }
 function closeModal(){ document.getElementById('modal').classList.add('hidden'); }
@@ -323,6 +370,27 @@ function drawMapHUD(){
   ctx.fillText('B battle    E elite    $ shop    R rest    ? event    W boss', W/2, H-42);
   ctx.textBaseline='alphabetic';
 }
+
+// ---- title screen ----
+function drawTitle(){
+  drawBackground();
+  ctx.fillStyle='rgba(8,12,22,.42)'; ctx.fillRect(0,0,W,H);
+  // hero shot
+  if(run){ drawCharacter(run.heroes[0], {x:W/2-96,y:H-36,s:1.5}, false, true);
+           drawCharacter(run.heroes[1], {x:W/2+98,y:H-54,s:1.38}, false, true); }
+  // logo
+  ctx.textAlign='center';
+  ctx.font='900 64px Segoe UI'; ctx.lineWidth=9; ctx.lineJoin='round'; ctx.strokeStyle='#1a1320';
+  ctx.strokeText('CRASHBOUND', W/2, 138);
+  let lg=ctx.createLinearGradient(0,92,0,150); lg.addColorStop(0,'#ffe9a8'); lg.addColorStop(1,'#f0a93c');
+  ctx.fillStyle=lg; ctx.fillText('CRASHBOUND', W/2, 138);
+  ctx.font='700 17px Segoe UI'; ctx.lineWidth=4; ctx.strokeText('A TURN-BASED BRAWLER', W/2, 168);
+  ctx.fillStyle='#e8edf7'; ctx.fillText('A TURN-BASED BRAWLER', W/2, 168);
+  // prompt
+  const a=0.45+0.45*Math.sin(now()/300);
+  ctx.globalAlpha=a; ctx.fillStyle='#ffcf5c'; ctx.font='700 18px Segoe UI'; ctx.fillText('▶  Click to begin', W/2, H-66); ctx.globalAlpha=1;
+}
+function drawFade(){ if(!fadeT) return; const p=(now()-fadeT)/320; if(p>=1){ fadeT=0; return; } ctx.fillStyle=`rgba(6,9,16,${1-p})`; ctx.fillRect(0,0,W,H); }
 
 // ---------- unit factories ----------
 function hero(id,name,spd,hp,abil){return{id,name,art:ART[id],spd,hp,maxhp:hp,abil,side:'hero',
@@ -367,7 +435,7 @@ async function advance(){
     let dot=0, isBurn=false;
     if(a.fx.burn){ dot+=BURN_DMG; isBurn=true; if(--a.fx.burn<=0) delete a.fx.burn; }
     if(a.fx.bleed){ dot+=BLEED_DMG; if(--a.fx.bleed<=0) delete a.fx.bleed; }
-    a.hp-=dot; a.hitT=now(); floatText(a,dot,isBurn?'#ff9a4a':'#ff5a6a'); spark(a);
+    a.hp-=dot; a.hitT=now(); floatText(a,dot,isBurn?'#ff9a4a':'#ff5a6a'); spark(a); isBurn?SFX.burn():SFX.bleed();
     log(`<b>${a.name}</b> takes <span class="hit">${dot}</span> from ${isBurn?'burning':'bleeding'}.`,'cc');
     if(a.hp<=0){ a.hp=0; a.alive=false; a.fx={}; log(`<b>${a.name}</b> succumbs!`);
       if(a.side==='foe') state.foes=state.foes.filter(f=>f!==a); }
@@ -406,6 +474,7 @@ async function useAbility(id){
 
 cv.addEventListener('click', async e=>{
   const r=cv.getBoundingClientRect(), mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
+  if(mode==='title'){ resumeAudio(); SFX.start(); mode='map'; fadeT=now(); document.getElementById('intro').classList.remove('hidden'); return; }
   if(mode==='map'){
     for(const n of availableNodes()){ const dx=mx-n.x, dy=my-n.y; if(dx*dx+dy*dy <= 24*24){ enterNode(n); return; } }
     return; }
@@ -426,13 +495,13 @@ async function resolve(actor,ab,id,target){
   actor.lungeT=now();
   let dmg=ab.dmg + (actor.side==='hero'?(run.atkBonus||0):0), deton=false;
   if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; state.shakeT=now();
-    if(run.lifesteal){ actor.hp=Math.min(actor.maxhp,actor.hp+run.lifesteal); floatText(actor,'+'+run.lifesteal,'#46d27a'); } }
+    if(run.lifesteal){ actor.hp=Math.min(actor.maxhp,actor.hp+run.lifesteal); floatText(actor,'+'+run.lifesteal,'#46d27a'); SFX.heal(); } }
   dealDamage(target,dmg,deton);
-  if(ab.fx==='launch'){ target.fx.launch=true; target.nextAt+=7; log(`<b>${actor.name}</b> launches <b>${target.name}</b> — <span class="cc">✦ airborne!</span>`); }
-  if(ab.fx==='freeze'){ target.fx.freeze=true; target.nextAt+=6; log(`<b>${actor.name}</b> freezes <b>${target.name}</b> — <span class="cc">❄ frozen!</span>`); }
+  if(ab.fx==='launch'){ target.fx.launch=true; target.nextAt+=7; SFX.launch(); log(`<b>${actor.name}</b> launches <b>${target.name}</b> — <span class="cc">✦ airborne!</span>`); }
+  if(ab.fx==='freeze'){ target.fx.freeze=true; target.nextAt+=6; SFX.freeze(); log(`<b>${actor.name}</b> freezes <b>${target.name}</b> — <span class="cc">❄ frozen!</span>`); }
   if(ab.fx==='shove' && target.alive){ state.foes.splice(state.foes.indexOf(target),1); state.foes.push(target); log(`<b>${actor.name}</b> shoves <b>${target.name}</b> to the back.`); }
-  if(ab.fx==='pull' && target.alive){ const i=state.foes.indexOf(target); if(i>0){ state.foes.splice(i,1); state.foes.unshift(target); } log(`<b>${actor.name}</b> yanks <b>${target.name}</b> to the front.`); }
-  if(ab.fx==='bleed' && target.alive){ target.fx.bleed=BLEED_TURNS; log(`<b>${actor.name}</b> rends <b>${target.name}</b> — <span class="cc">bleeding!</span>`); }
+  if(ab.fx==='pull' && target.alive){ const i=state.foes.indexOf(target); if(i>0){ state.foes.splice(i,1); state.foes.unshift(target); } SFX.select(); log(`<b>${actor.name}</b> yanks <b>${target.name}</b> to the front.`); }
+  if(ab.fx==='bleed' && target.alive){ target.fx.bleed=BLEED_TURNS; SFX.bleed(); log(`<b>${actor.name}</b> rends <b>${target.name}</b> — <span class="cc">bleeding!</span>`); }
   if(ab.fx==='detonate' && target.alive){ target.fx.burn=BURN_TURNS+(run.burnPlus||0); log(`<b>${target.name}</b> is <span class="cc">burning!</span>`); }
   await sleep(deton?640:380);
   if(state.gen!==myGen) return;
@@ -441,6 +510,7 @@ async function resolve(actor,ab,id,target){
 
 function dealDamage(t,dmg,deton){
   t.hp-=dmg; t.hitT=now(); floatText(t,(deton?'✸ ':'')+dmg, deton?'#c08bff':'#ffd0d0'); spark(t);
+  if(deton) SFX.detonate(); else if(dmg>=14) SFX.heavy(); else SFX.hit();
   if(deton) log(`<span class="det">DETONATE! ${t.name} takes ${dmg} damage!</span>`);
   else log(`<b>${state.active.name}</b> hits <b>${t.name}</b> for <span class="hit">${dmg}</span>.`);
   if(t.hp<=0){ t.hp=0; t.alive=false; t.fx={}; log(`<b>${t.name}</b> is defeated!`);
@@ -448,7 +518,7 @@ function dealDamage(t,dmg,deton){
 }
 
 function hurtHero(h,dmg,onhit){
-  h.hp-=dmg; h.hitT=now(); floatText(h,dmg,'#ffd0d0'); spark(h);
+  h.hp-=dmg; h.hitT=now(); floatText(h,dmg,'#ffd0d0'); spark(h); dmg>=14?SFX.heavy():SFX.hit();
   if(onhit && h.alive && h.hp>0){ h.fx[onhit]=(onhit==='burn'?BURN_TURNS:BLEED_TURNS);
     log(`<b>${h.name}</b> is ${onhit==='burn'?'set ablaze':'bleeding'}!`,'cc'); }
   if(h.hp<=0){ h.hp=0; h.alive=false; log(`<b>${h.name}</b> falls!`); }
@@ -515,6 +585,12 @@ function drawBackground(){
   ctx.bezierCurveTo(W*0.3,332, W*0.7,356, W,338); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
   // ground speckles
   ctx.fillStyle='rgba(255,255,255,.07)'; for(let i=0;i<60;i++){ const gx=(i*97%W), gy=360+(i*53%80); circle(gx,gy,1.5); ctx.fill(); }
+  // ominous tint for elite / boss fights
+  if(state && state.node){
+    if(state.node.type==='boss'){ let v=ctx.createRadialGradient(W/2,H*0.5,80,W/2,H*0.5,W*0.72);
+      v.addColorStop(0,'rgba(30,0,12,0)'); v.addColorStop(1,'rgba(26,0,10,.55)'); ctx.fillStyle=v; ctx.fillRect(0,52,W,H-52); }
+    else if(state.node.type==='elite'){ ctx.fillStyle='rgba(120,20,40,.12)'; ctx.fillRect(0,52,W,H-52); }
+  }
 }
 function cloud(x,y,s){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
   circle(0,0,16); ctx.fill(); circle(18,4,13); ctx.fill(); circle(-16,5,12); ctx.fill(); circle(4,-9,12); ctx.fill();
@@ -553,9 +629,9 @@ function drawScene(){
   for(const it of list) drawCharacter(it.u, it.a, it.front);
 }
 
-function drawCharacter(u,a,front){
+function drawCharacter(u,a,front,hidePlate){
   const A=u.art, t=now();
-  const active = u===state.active && state.phase!=='over';
+  const active = !!state && u===state.active && state.phase!=='over';
   const facing = u.side==='hero' ? 1 : -1;
   const launched = !!u.fx.launch;
   const ph=u.bobPhase, idle=A.idle||'calm';
@@ -663,7 +739,7 @@ function drawCharacter(u,a,front){
   // launched sparkle
   if(launched){ ctx.fillStyle=A.trim; ctx.font='14px Segoe UI'; ctx.textAlign='center'; ctx.fillText('✦', a.x+10*facing, a.y-bob-150*a.s); }
 
-  drawPlate(u,a,front,active);
+  if(!hidePlate) drawPlate(u,a,front,active);
 }
 
 function drawPlate(u,a,front,active){
@@ -702,7 +778,8 @@ function drawTimeline(){
 function render(){
   T=now();
   ctx.clearRect(0,0,W,H);
-  if(mode!=='battle'){ drawMap(); if(RUN) requestAnimationFrame(render); return; }
+  if(mode==='title'){ drawTitle(); drawFade(); if(RUN) requestAnimationFrame(render); return; }
+  if(mode!=='battle'){ drawMap(); drawFade(); if(RUN) requestAnimationFrame(render); return; }
   // detonate screen-shake (battlefield only)
   let sx=0,sy=0;
   if(state.shakeT){ const p=(T-state.shakeT)/400; if(p<1){ const m=15*(1-p); sx=Math.sin(p*68)*m; sy=Math.cos(p*54)*m; } }
@@ -736,12 +813,14 @@ function render(){
   // timeline header band (fixed, no shake)
   ctx.fillStyle='#0c1322'; ctx.fillRect(0,0,W,52); ctx.strokeStyle='#1c2740'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,52); ctx.lineTo(W,52); ctx.stroke();
   drawTimeline();
+  drawFade();
   if(RUN) requestAnimationFrame(render);
 }
 
 // ---------- boot ----------
-function restart(){ document.getElementById('end').classList.add('hidden'); closeModal(); logEl.innerHTML=''; newRun(); }
-newRun();
+function restart(){ document.getElementById('end').classList.add('hidden'); closeModal(); logEl.innerHTML=''; resumeAudio(); newRun(); fadeT=now(); }
+function beginRun(){ document.getElementById('intro').classList.add('hidden'); resumeAudio(); fadeT=now(); }
+newRun(); mode='title';
 render();
 </script>
 </body>
