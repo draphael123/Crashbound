@@ -783,55 +783,59 @@ function circle(x,y,r){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.closePath();}
 
 // ---- layered background ----
 function drawBackground(){
-  // sky (bright daytime)
-  let sky=ctx.createLinearGradient(0,52,0,H); sky.addColorStop(0,'#3fa3e6'); sky.addColorStop(.55,'#8fd2ef'); sky.addColorStop(1,'#dcf3e6');
+  // grim torchlit night sky
+  let sky=ctx.createLinearGradient(0,40,0,H); sky.addColorStop(0,'#0d0b16'); sky.addColorStop(.6,'#171320'); sky.addColorStop(1,'#241a22');
   ctx.fillStyle=sky; ctx.fillRect(-18,40,W+36,H);
-  // sun (placed in open sky between the parties, away from units)
-  let mg=ctx.createRadialGradient(410,84,6,410,84,58);
-  mg.addColorStop(0,'#fffadb'); mg.addColorStop(.4,'rgba(255,238,150,.8)'); mg.addColorStop(1,'rgba(255,238,150,0)');
-  ctx.fillStyle=mg; circle(410,84,58); ctx.fill(); ctx.fillStyle='#fff7cf'; circle(410,84,15); ctx.fill();
-  // clouds (slow drift)
-  ctx.fillStyle='rgba(255,255,255,.88)'; const cd=now()/90;
-  cloud((170+cd)%(W+120)-60,94,1); cloud((610+cd*0.7)%(W+120)-60,118,.8); cloud((300+cd*1.3)%(W+120)-60,150,.55);
-  // far hills
-  ctx.fillStyle='#83b46c'; hill(-20,300,260,90); hill(520,310,360,86);
-  ctx.fillStyle='#6fa55c'; hill(210,318,300,68);
-  // castle (distant landmark in the open middle, sitting on the hills)
+  // dim cold moon
+  let mg=ctx.createRadialGradient(150,88,4,150,88,48); mg.addColorStop(0,'rgba(200,210,235,.45)'); mg.addColorStop(1,'rgba(200,210,235,0)');
+  ctx.fillStyle=mg; circle(150,88,48); ctx.fill(); ctx.fillStyle='#aab4ce'; circle(150,88,12); ctx.fill();
+  // drifting storm clouds
+  ctx.fillStyle='rgba(26,22,38,.7)'; const cd=now()/90;
+  cloud((170+cd)%(W+120)-60,96,1); cloud((610+cd*0.7)%(W+120)-60,120,.8); cloud((300+cd*1.3)%(W+120)-60,150,.55);
+  // dark hills
+  ctx.fillStyle='#141220'; hill(-20,300,260,90); hill(520,310,360,86);
+  ctx.fillStyle='#0f0d18'; hill(210,318,300,68);
+  // ruined keep silhouette
   drawCastle(332,318,0.82);
-  // mid treeline
-  ctx.fillStyle='#3f7e44'; for(let i=0;i<8;i++) tree(40+i*100, 330, 26+(i%3)*6);
-  // ground
-  let gr=ctx.createLinearGradient(0,330,0,H); gr.addColorStop(0,'#79c64d'); gr.addColorStop(1,'#3f802c');
+  // dark treeline
+  ctx.fillStyle='#0c1410'; for(let i=0;i<8;i++) tree(40+i*100, 330, 26+(i%3)*6);
+  // muddy ground
+  let gr=ctx.createLinearGradient(0,330,0,H); gr.addColorStop(0,'#2a2a1c'); gr.addColorStop(1,'#11110b');
   ctx.fillStyle=gr; ctx.beginPath(); ctx.moveTo(0,344);
   ctx.bezierCurveTo(W*0.3,332, W*0.7,356, W,338); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
-  // ground speckles
-  ctx.fillStyle='rgba(255,255,255,.07)'; for(let i=0;i<60;i++){ const gx=(i*97%W), gy=360+(i*53%80); circle(gx,gy,1.5); ctx.fill(); }
-  // foreground bushes + grass for depth
+  ctx.fillStyle='rgba(255,255,255,.04)'; for(let i=0;i<50;i++){ const gx=(i*97%W), gy=360+(i*53%80); circle(gx,gy,1.4); ctx.fill(); }
+  // dark foreground brush
   bush(64,392,1.1); bush(398,388,1.35); bush(726,392,1.0);
   for(let i=0;i<27;i++) grassTuft(6+i*30, H-2, 0.8+((i*7)%3)*0.18);
-  // focus vignette
-  let vg=ctx.createRadialGradient(W/2,H*0.56,120,W/2,H*0.56,W*0.72);
-  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(10,12,20,.30)'); ctx.fillStyle=vg; ctx.fillRect(0,52,W,H-52);
-  // ominous tint for elite / boss fights
+  // torch glows from the lower corners (motivate the rim light) — flicker
+  const tf=0.82+0.18*Math.sin(now()/90)+0.05*Math.sin(now()/37);
+  for(const tx of [70, W-70]){ let tg2=ctx.createRadialGradient(tx,H-72,8,tx,H-72,240);
+    tg2.addColorStop(0,`rgba(255,150,60,${0.17*tf})`); tg2.addColorStop(1,'rgba(255,150,60,0)'); ctx.fillStyle=tg2; ctx.fillRect(0,52,W,H-52); }
+  // heavy vignette
+  let vg=ctx.createRadialGradient(W/2,H*0.54,90,W/2,H*0.54,W*0.66);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(4,3,8,.62)'); ctx.fillStyle=vg; ctx.fillRect(0,40,W,H-40);
+  // film grain
+  ctx.globalAlpha=.045; for(let i=0;i<150;i++){ ctx.fillStyle=(i&1)?'#fff':'#000'; ctx.fillRect((now()*0.013*i)%W|0,(now()*0.017*i+i*53)%H|0,1,1); } ctx.globalAlpha=1;
+  // extra tint for elite / boss fights
   if(state && state.node){
     if(state.node.type==='boss'){ let v=ctx.createRadialGradient(W/2,H*0.5,80,W/2,H*0.5,W*0.72);
-      v.addColorStop(0,'rgba(30,0,12,0)'); v.addColorStop(1,'rgba(26,0,10,.55)'); ctx.fillStyle=v; ctx.fillRect(0,52,W,H-52); }
-    else if(state.node.type==='elite'){ ctx.fillStyle='rgba(120,20,40,.12)'; ctx.fillRect(0,52,W,H-52); }
+      v.addColorStop(0,'rgba(45,0,14,0)'); v.addColorStop(1,'rgba(45,0,14,.5)'); ctx.fillStyle=v; ctx.fillRect(0,52,W,H-52); }
+    else if(state.node.type==='elite'){ ctx.fillStyle='rgba(120,20,40,.16)'; ctx.fillRect(0,52,W,H-52); }
   }
 }
 function cloud(x,y,s){ ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
   circle(0,0,16); ctx.fill(); circle(18,4,13); ctx.fill(); circle(-16,5,12); ctx.fill(); circle(4,-9,12); ctx.fill();
   ctx.fillRect(-16,1,35,11); ctx.restore(); }
 function hill(x,y,w,h){ ctx.beginPath(); ctx.moveTo(x,y+h); ctx.quadraticCurveTo(x+w/2,y-h, x+w,y+h); ctx.closePath(); ctx.fill(); }
-function bush(x,y,s){ ctx.fillStyle='#357a3a'; circle(x,y,13*s); ctx.fill(); circle(x-11*s,y+4*s,10*s); ctx.fill(); circle(x+11*s,y+4*s,10*s); ctx.fill();
-  ctx.fillStyle='#2c6531'; circle(x-4*s,y+3*s,8*s); ctx.fill(); ctx.fillStyle='#4a9a4e'; circle(x-5*s,y-5*s,5*s); ctx.fill(); }
-function grassTuft(x,y,s){ ctx.strokeStyle='#3f8a36'; ctx.lineWidth=2*s; ctx.lineCap='round';
+function bush(x,y,s){ ctx.fillStyle='#1b2a18'; circle(x,y,13*s); ctx.fill(); circle(x-11*s,y+4*s,10*s); ctx.fill(); circle(x+11*s,y+4*s,10*s); ctx.fill();
+  ctx.fillStyle='#13200f'; circle(x-4*s,y+3*s,8*s); ctx.fill(); ctx.fillStyle='#27381f'; circle(x-5*s,y-5*s,5*s); ctx.fill(); }
+function grassTuft(x,y,s){ ctx.strokeStyle='#243a1e'; ctx.lineWidth=2*s; ctx.lineCap='round';
   for(let k=-2;k<=2;k++){ ctx.beginPath(); ctx.moveTo(x+k*3*s,y); ctx.quadraticCurveTo(x+k*4*s,y-9*s, x+k*5.5*s,y-15*s); ctx.stroke(); }
   ctx.lineCap='butt'; }
 function tree(x,y,h){ ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-h*0.5,y); ctx.lineTo(x,y-h*1.6); ctx.lineTo(x+h*0.5,y); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.moveTo(x,y-h*0.4); ctx.lineTo(x-h*0.42,y-h*0.4); ctx.lineTo(x,y-h*1.9); ctx.lineTo(x+h*0.42,y-h*0.4); ctx.closePath(); ctx.fill(); }
 function drawCastle(x,y,s){ s=s||1; ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
-  const stone='#9aa3c6', dark='#727bA4', roof='#7d5ba6', win='#3a3f5e';
+  const stone='#211d30', dark='#15121f', roof='#2c2140', win='#0c0a14';
   // main wall + battlements
   ctx.fillStyle=stone; ctx.fillRect(-60,-66,120,66);
   for(let i=0;i<6;i++) ctx.fillRect(-60+i*22,-74,12,10);
