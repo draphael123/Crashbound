@@ -40,7 +40,12 @@
   .card p b{color:var(--gold)}
   .card button{margin-top:14px;background:linear-gradient(180deg,#ffd874,#f0a93c);border:0;color:#2a1b00;
     font-weight:800;font-size:15px;padding:11px 26px;border-radius:10px;cursor:pointer}
-  .card button:hover{filter:brightness(1.07)}
+  .card button:hover:not(:disabled){filter:brightness(1.07)}
+  .card button:disabled{opacity:.45;cursor:not-allowed}
+  #mBody{color:var(--muted);font-size:13px;line-height:1.6;margin:6px 0;text-align:left}
+  #mBody b{color:var(--gold)}
+  #mBtns{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  #mBtns button{margin-top:0;width:100%;font-size:13.5px;padding:10px 14px}
   .hidden{display:none!important}
   .key{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 7px;color:var(--ink);font-size:11px}
 </style>
@@ -66,16 +71,17 @@
       • <b>Wisp → Frostbite</b> freezes an enemy (<span class="key">❄ frozen</span>).<br>
       • <b>Wisp → Meteor</b> does <b>huge bonus damage</b> to an airborne or frozen target — the <b>DETONATE</b>.</p>
     <p style="text-align:left;color:#74e0ff">Launching/freezing also shoves the enemy back on the timeline, so they lose their turn. Trade that lock for damage by detonating.</p>
-    <p style="text-align:left">Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (damage over time), and <b>Gust</b> yanks the back enemy into melee. Survive <b>3 encounters</b> — patrol, an elite, then the Warlord.</p>
-    <button onclick="document.getElementById('intro').classList.add('hidden')">Fight!</button>
+    <p style="text-align:left">Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (damage over time), and <b>Gust</b> yanks the back enemy into melee.</p>
+    <p style="text-align:left;color:#ffcf5c">Climb a branching map — <b>B</b>attles, <b>E</b>lites, <b>$</b>hops, <b>R</b>est, <b>?</b> events — to reach the <b>W</b>arlord. HP carries between fights; spend gold on heals & upgrades. Party wipe ends the run (the map reshuffles).</p>
+    <button onclick="document.getElementById('intro').classList.add('hidden')">Begin the run</button>
   </div>
 </div>
 
-<div id="inter" class="overlay hidden">
+<div id="modal" class="overlay hidden">
   <div class="card">
-    <h2 id="interTitle" class="win"></h2>
-    <p id="interBody"></p>
-    <button onclick="continueRun()">Advance</button>
+    <h2 id="mTitle"></h2>
+    <div id="mBody"></div>
+    <div id="mBtns"></div>
   </div>
 </div>
 
@@ -139,11 +145,184 @@ const FOES = {
   elite: {name:'Ogre Captain', spd:7,  hp:66,  atk:13, onhit:'bleed', elite:true},
   boss:  {name:'Warlord',      spd:8,  hp:140, atk:14, onhit:'burn',  boss:true},
 };
-const ENCOUNTERS = [
-  { name:'Vanguard Patrol',      foes:['grunt','brute','archer'] },
-  { name:'Ogre Captain (Elite)', foes:['grunt','elite','grunt'] },
-  { name:'The Warlord (Boss)',   foes:['boss','archer'] },
+// ===================== PHASE 3: RUN · MAP · NODES =====================
+const rnd = n => Math.floor(Math.random()*n);
+const pick = arr => arr[rnd(arr.length)];
+
+// encounter pools (scale with map depth)
+function battleFoes(d){
+  if(d<=1) return pick([['grunt','grunt'],['grunt','brute'],['grunt','archer']]);
+  if(d<=3) return pick([['grunt','brute','archer'],['grunt','grunt','archer'],['brute','archer']]);
+  return pick([['brute','brute','archer'],['grunt','brute','brute'],['brute','archer','archer']]);
+}
+function eliteFoes(d){ return d<=3 ? ['grunt','elite','grunt'] : ['elite','brute','archer']; }
+function bossFoes(){ return ['boss','archer']; }
+
+// run-wide upgrades (relics)
+const UPGRADES = [
+  {name:'Whetstone',        desc:'+3 damage to all your attacks',      apply:()=>run.atkBonus+=3},
+  {name:'Vitality Draught', desc:'+15 Max HP to both heroes (healed)', apply:()=>run.heroes.forEach(h=>{h.maxhp+=15;h.hp+=15;})},
+  {name:'Ember Sigil',      desc:'Meteor burn lasts 2 extra turns',    apply:()=>run.burnPlus+=2},
+  {name:'Vampiric Edge',    desc:'Heal 4 whenever you detonate',       apply:()=>run.lifesteal+=4},
 ];
+function pickUpgrades(n){ const pool=[...UPGRADES],out=[]; while(out.length<n&&pool.length) out.push(pool.splice(rnd(pool.length),1)[0]); return out; }
+
+const EVENTS = [
+  {title:'Cursed Altar', text:'A blood-slick altar thrums with dark power.', choices:[
+    {label:'Drink the power (+4 attack, −8 HP each)', act:()=>{ run.atkBonus+=4; run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.max(1,h.hp-8); }); }},
+    {label:'Pray instead (heal 25%)',                       act:()=>run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.25)); }) }]},
+  {title:'Abandoned Cache', text:'A merchant’s spilled satchel glints in the dirt.', choices:[
+    {label:'Grab the gold (+25 gold)',    act:()=>run.gold+=25},
+    {label:'Take the tonic (+12 Max HP)', act:()=>run.heroes.forEach(h=>{h.maxhp+=12;h.hp+=12;}) }]},
+  {title:'Old Soldier', text:'A grizzled veteran offers to share a few tricks.', choices:[
+    {label:'Pay 15 gold to train (+2 attack)', act:()=>{ if(run.gold>=15){ run.gold-=15; run.atkBonus+=2; } }},
+    {label:'Decline, make camp (heal 15%)',    act:()=>run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.15)); }) }]},
+];
+
+// ---- map generation (branching, Slay-the-Spire-style) ----
+const MAP_ROWS = 7;
+function rowType(r){
+  if(r===MAP_ROWS-1) return 'boss';
+  if(r===0) return 'battle';
+  if(r===MAP_ROWS-2) return 'rest';     // campfire row before the boss
+  const x=Math.random();
+  if(x<0.50) return 'battle';
+  if(x<0.66) return 'event';
+  if(x<0.80) return 'elite';
+  if(x<0.90) return 'shop';
+  return 'rest';
+}
+function genMap(){
+  const rows=[];
+  for(let r=0;r<MAP_ROWS;r++){
+    const count = r===MAP_ROWS-1?1 : r===0?3 : 2+rnd(3);
+    const nodes=[]; for(let c=0;c<count;c++) nodes.push({r,c,type:rowType(r),next:[],done:false,x:0,y:0});
+    rows.push(nodes);
+  }
+  for(let r=0;r<MAP_ROWS-1;r++){ const a=rows[r], b=rows[r+1];
+    a.forEach((n,i)=>{ const j=Math.round(i/Math.max(1,a.length-1)*(b.length-1)); const links=new Set([j]);
+      if(Math.random()<0.5) links.add(Math.min(b.length-1,j+1));
+      if(Math.random()<0.4) links.add(Math.max(0,j-1)); n.next=[...links]; });
+    b.forEach((_,j)=>{ if(!a.some(n=>n.next.includes(j))){ const bi=Math.round(j/Math.max(1,b.length-1)*(a.length-1)); a[bi].next.push(j); } });
+  }
+  if(!rows.flat().some(n=>n.type==='shop')){ const mid=rows[2+rnd(2)]; mid[rnd(mid.length)].type='shop'; }
+  rows.forEach((nodes,r)=>{ const y=402 - r*(330/(MAP_ROWS-1));
+    nodes.forEach((n,c)=>{ n.x=(c+1)/(nodes.length+1)*W; n.y=y; }); });
+  return rows;
+}
+
+function newRun(){
+  run={ heroes:[ hero('brand','Brand',10,62,['slash','uppercut','shove','rend']),
+                 hero('wisp','Wisp',12,44,['bolt','frost','meteor','gust']) ],
+        gold:0, atkBonus:0, burnPlus:0, lifesteal:0, map:genMap(), node:null, cleared:0 };
+  mode='map';
+}
+function availableNodes(){
+  if(!run.node) return run.map[0];
+  if(run.node.r>=MAP_ROWS-1) return [];
+  return run.node.next.map(j=>run.map[run.node.r+1][j]);
+}
+function enterNode(n){ run.node=n;
+  if(n.type==='rest') openRest(); else if(n.type==='shop') openShop();
+  else if(n.type==='event') openEvent(); else startBattle(n); }
+
+// ---- battle bridge ----
+function battleState(foeIds,node){
+  const heroes=run.heroes;
+  heroes.forEach(h=>{ h.fx={}; h.cds={}; h.lungeT=0; h.hitT=0; h.alive=h.hp>0; h.nextAt=100/h.spd; });
+  return {heroes,foes:foeIds.map(foe),node,active:null,phase:'idle',pending:null,floats:[],sparks:[],puffs:[],flash:0,shakeT:0,gen:(state?state.gen+1:1),clock:0};
+}
+function startBattle(node){
+  const ids = node.type==='boss'?bossFoes() : node.type==='elite'?eliteFoes(node.r) : battleFoes(node.r);
+  state=battleState(ids,node); mode='battle';
+  logEl.innerHTML=''; log(`A ${node.type==='boss'?'<b>BOSS</b>':node.type==='elite'?'<b>elite</b>':'battle'} blocks the path. Fight!`);
+  advance();
+}
+function onBattleWon(node){
+  node.done=true; run.cleared++; mode='map';
+  state.phase='over'; bar.innerHTML=''; hintEl.textContent='';
+  run.heroes.forEach(h=>{ if(h.hp<=0){ h.hp=Math.ceil(h.maxhp*0.25); h.alive=true; } });
+  if(node.type==='boss'){ showEnd(true); return; }
+  const gold = node.type==='elite' ? 24+rnd(16) : 11+rnd(9);
+  run.gold+=gold;
+  if(node.type==='elite'){
+    const ch=pickUpgrades(2);
+    openModal('Elite defeated!', `Looted <b>${gold} gold</b>. Choose a spoil:<br>`+ch.map(u=>`• <b>${u.name}</b> — ${u.desc}`).join('<br>'),
+      ch.map(u=>({label:u.name, onclick:()=>{ u.apply(); closeModal(); }})) );
+  } else openModal('Victory', `You gained <b>${gold} gold</b>.`, [{label:'Onward', onclick:closeModal}]);
+}
+function onRunLost(){ mode='map'; state.phase='over'; bar.innerHTML=''; hintEl.textContent=''; showEnd(false); }
+function showEnd(win){
+  document.getElementById('endTitle').textContent = win?'The Warlord falls!':'Your party is slain';
+  document.getElementById('endTitle').className = win?'win':'lose';
+  document.getElementById('endBody').innerHTML = win
+    ? `You cleared the keep — ${run.cleared} encounters, ${run.gold} gold banked. Next act: relics, more bosses, deeper maps.`
+    : `You fell after ${run.cleared} encounter${run.cleared===1?'':'s'}. The map reshuffles each run — take a safer path next time.`;
+  document.getElementById('end').classList.remove('hidden');
+}
+
+// ---- node modals (rest / shop / event) ----
+function openRest(){ openModal('Campfire', 'You make camp. Rest and recover your strength.',
+  [{label:'Rest — heal 40% HP', onclick:()=>{ run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.4)); }); run.node.done=true; closeModal(); }}]); }
+function openShop(){
+  const items=[{label:()=>'Heal 35% — 15g', cost:15, act:()=>run.heroes.forEach(h=>{ if(h.hp>0) h.hp=Math.min(h.maxhp,h.hp+Math.ceil(h.maxhp*0.35)); })}];
+  pickUpgrades(2).forEach((u,i)=>{ const c=18+i*5; items.push({label:()=>`${u.name} (${u.desc}) — ${c}g`, cost:c, act:u.apply}); });
+  renderShop(items);
+}
+function renderShop(items){
+  openModal('Wandering Merchant', `<b>Your gold: ${run.gold}</b>`,
+    items.map(it=>({label:it.label(), disabled: it.bought||run.gold<it.cost,
+      onclick:()=>{ if(!it.bought&&run.gold>=it.cost){ run.gold-=it.cost; it.act(); it.bought=true; renderShop(items); } }}))
+    .concat([{label:'Leave shop', onclick:()=>{ run.node.done=true; closeModal(); }}]));
+}
+function openEvent(){ const e=pick(EVENTS);
+  openModal(e.title, e.text, e.choices.map(c=>({label:c.label, onclick:()=>{ c.act(); run.node.done=true; closeModal(); }}))); }
+
+// ---- generic modal ----
+function openModal(title,html,buttons){
+  document.getElementById('mTitle').innerHTML=title; document.getElementById('mBody').innerHTML=html;
+  const bb=document.getElementById('mBtns'); bb.innerHTML='';
+  buttons.forEach(b=>{ const el=document.createElement('button'); el.textContent=b.label; el.disabled=!!b.disabled; el.onclick=b.onclick; bb.appendChild(el); });
+  document.getElementById('modal').classList.remove('hidden');
+}
+function closeModal(){ document.getElementById('modal').classList.add('hidden'); }
+
+// ---- map rendering ----
+const NODE_COL={battle:'#ff7a7a',elite:'#d65a8f',shop:'#ffcf5c',rest:'#7fd0a0',event:'#9fd6ff',boss:'#c08bff'};
+const NODE_IC ={battle:'B',elite:'E',shop:'$',rest:'R',event:'?',boss:'W'};
+function drawMap(){
+  let sky=ctx.createLinearGradient(0,0,0,H); sky.addColorStop(0,'#26406a'); sky.addColorStop(1,'#141f38');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#ffcf5c'; ctx.font='700 15px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.fillText('THE WARLORD’S KEEP  ·  choose your path', W/2, 24);
+  const avail=availableNodes();
+  for(let r=0;r<run.map.length-1;r++) for(const n of run.map[r]) for(const j of n.next){ const m=run.map[r+1][j];
+    const hot = run.node===n && avail.includes(m);
+    ctx.lineWidth=hot?3:2; ctx.strokeStyle=hot?'rgba(255,207,92,.95)':'rgba(255,255,255,.12)';
+    ctx.beginPath(); ctx.moveTo(n.x,n.y); ctx.lineTo(m.x,m.y); ctx.stroke(); }
+  for(const row of run.map) for(const n of row) drawNode(n, avail.includes(n), run.node===n);
+  drawMapHUD();
+}
+function drawNode(n,avail,cur){
+  const col=NODE_COL[n.type], r=n.type==='boss'?24:17;
+  ctx.save(); ctx.globalAlpha = n.done?0.42 : (avail||cur?1:0.5);
+  if(avail){ ctx.shadowColor=col; ctx.shadowBlur=14+6*Math.sin(now()/240); }
+  ctx.fillStyle='#0e1626'; circle(n.x,n.y,r); ctx.fill(); ctx.shadowBlur=0;
+  ctx.lineWidth=cur?4:(avail?3:1.5); ctx.strokeStyle=cur?'#ffcf5c':(avail?col:'#33405e'); circle(n.x,n.y,r); ctx.stroke();
+  ctx.fillStyle=col; ctx.font=`700 ${n.type==='boss'?18:14}px Segoe UI`; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(NODE_IC[n.type], n.x, n.y+1); ctx.textBaseline='alphabetic'; ctx.restore();
+  if(n.done){ ctx.fillStyle='#46d27a'; ctx.font='700 13px Segoe UI'; ctx.textAlign='center'; ctx.fillText('✓', n.x+r-1, n.y-r+5); }
+}
+function drawMapHUD(){
+  ctx.fillStyle='rgba(8,12,22,.9)'; ctx.fillRect(0,H-32,W,32);
+  ctx.textBaseline='middle';
+  ctx.fillStyle='#ffcf5c'; ctx.font='700 13px Segoe UI'; ctx.textAlign='left'; ctx.fillText('Gold: '+run.gold, 14, H-16);
+  ctx.textAlign='right'; let x=W-14;
+  run.heroes.forEach(h=>{ ctx.fillStyle=h.hp>0?h.art.main:'#6a7180'; ctx.fillText(`${h.name} ${Math.max(0,h.hp)}/${h.maxhp}`, x, H-16); x-=140; });
+  ctx.textAlign='center'; ctx.font='600 10px Segoe UI'; ctx.fillStyle='#90a0c0';
+  ctx.fillText('B battle    E elite    $ shop    R rest    ? event    W boss', W/2, H-42);
+  ctx.textBaseline='alphabetic';
+}
 
 // ---------- unit factories ----------
 function hero(id,name,spd,hp,abil){return{id,name,art:ART[id],spd,hp,maxhp:hp,abil,side:'hero',
@@ -152,22 +331,7 @@ function foe(id){ const d=FOES[id]; return {id, name:d.name, art:ART[id], spd:d.
   ranged:!!d.ranged, onhit:d.onhit||null, boss:!!d.boss, elite:!!d.elite, side:'foe',
   nextAt:100/d.spd, fx:{}, alive:true, bobPhase:Math.random()*6, lungeT:0, hitT:0}; }
 
-let state;
-function freshState(){
-  const heroes=[
-    hero('brand','Brand',10,62,['slash','uppercut','shove','rend']),
-    hero('wisp','Wisp',12,44,['bolt','frost','meteor','gust']),
-  ];
-  const s={heroes,foes:[],encIndex:0,active:null,phase:'idle',pending:null,floats:[],sparks:[],puffs:[],flash:0,shakeT:0,gen:(state?state.gen+1:1),clock:0};
-  s.foes=ENCOUNTERS[0].foes.map(foe);
-  return s;
-}
-function loadEncounter(i){
-  state.encIndex=i; state.foes=ENCOUNTERS[i].foes.map(foe);
-  [...state.heroes,...state.foes].forEach(u=>u.nextAt=100/u.spd);
-  state.heroes.forEach(h=>{ h.fx={}; });
-  state.active=null; state.floats=[]; state.sparks=[]; state.puffs=[]; state.flash=0; state.shakeT=0;
-}
+let state, run, mode='map';
 
 const units = ()=>[...state.heroes,...state.foes];
 const living = arr => arr.filter(u=>u.alive);
@@ -241,8 +405,11 @@ async function useAbility(id){
 }
 
 cv.addEventListener('click', async e=>{
-  if(state.phase!=='target') return;
   const r=cv.getBoundingClientRect(), mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
+  if(mode==='map'){
+    for(const n of availableNodes()){ const dx=mx-n.x, dy=my-n.y; if(dx*dx+dy*dy <= 24*24){ enterNode(n); return; } }
+    return; }
+  if(state.phase!=='target') return;
   const fl=living(state.foes);
   for(let i=0;i<fl.length;i++){ const b=foeHit(i);
     if(mx>=b.x&&mx<=b.x+b.w&&my>=b.y&&my<=b.y+b.h){
@@ -257,15 +424,16 @@ function puff(u){ const a=anchorOf(u); state.puffs.push({x:a.x, y:a.y-1, t0:now(
 async function resolve(actor,ab,id,target){
   const myGen=state.gen; state.phase='anim'; renderBar(); actor.cds[id]=ab.cd;
   actor.lungeT=now();
-  let dmg=ab.dmg, deton=false;
-  if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; state.shakeT=now(); }
+  let dmg=ab.dmg + (actor.side==='hero'?(run.atkBonus||0):0), deton=false;
+  if(ab.fx==='detonate' && (target.fx.launch||target.fx.freeze)){ dmg+=DETONATE_BONUS; deton=true; target.fx={}; state.flash=1; state.shakeT=now();
+    if(run.lifesteal){ actor.hp=Math.min(actor.maxhp,actor.hp+run.lifesteal); floatText(actor,'+'+run.lifesteal,'#46d27a'); } }
   dealDamage(target,dmg,deton);
   if(ab.fx==='launch'){ target.fx.launch=true; target.nextAt+=7; log(`<b>${actor.name}</b> launches <b>${target.name}</b> — <span class="cc">✦ airborne!</span>`); }
   if(ab.fx==='freeze'){ target.fx.freeze=true; target.nextAt+=6; log(`<b>${actor.name}</b> freezes <b>${target.name}</b> — <span class="cc">❄ frozen!</span>`); }
   if(ab.fx==='shove' && target.alive){ state.foes.splice(state.foes.indexOf(target),1); state.foes.push(target); log(`<b>${actor.name}</b> shoves <b>${target.name}</b> to the back.`); }
   if(ab.fx==='pull' && target.alive){ const i=state.foes.indexOf(target); if(i>0){ state.foes.splice(i,1); state.foes.unshift(target); } log(`<b>${actor.name}</b> yanks <b>${target.name}</b> to the front.`); }
   if(ab.fx==='bleed' && target.alive){ target.fx.bleed=BLEED_TURNS; log(`<b>${actor.name}</b> rends <b>${target.name}</b> — <span class="cc">bleeding!</span>`); }
-  if(ab.fx==='detonate' && target.alive){ target.fx.burn=BURN_TURNS; log(`<b>${target.name}</b> is <span class="cc">burning!</span>`); }
+  if(ab.fx==='detonate' && target.alive){ target.fx.burn=BURN_TURNS+(run.burnPlus||0); log(`<b>${target.name}</b> is <span class="cc">burning!</span>`); }
   await sleep(deton?640:380);
   if(state.gen!==myGen) return;
   schedule(actor); advance();
@@ -304,30 +472,9 @@ async function foeTurn(f){
 }
 
 function checkEnd(){
-  if(!living(state.foes).length){
-    if(state.encIndex < ENCOUNTERS.length-1){ encounterCleared(); return true; }
-    endGame(true); return true; }
-  if(!living(state.heroes).length){ endGame(false); return true; }
+  if(!living(state.foes).length){ onBattleWon(state.node); return true; }
+  if(!living(state.heroes).length){ onRunLost(); return true; }
   return false; }
-function encounterCleared(){
-  state.phase='cleared'; bar.innerHTML=''; hintEl.textContent='';
-  state.heroes.forEach(h=>{ if(h.alive){ h.hp=Math.min(h.maxhp, h.hp+Math.ceil(h.maxhp*0.35)); h.cds={}; } });
-  const nxt=ENCOUNTERS[state.encIndex+1];
-  document.getElementById('interTitle').textContent='Encounter cleared!';
-  document.getElementById('interBody').innerHTML=`Party patched up <b>(+35% HP)</b>. Up next: <b>${nxt.name}</b>.`;
-  document.getElementById('inter').classList.remove('hidden');
-}
-function continueRun(){ document.getElementById('inter').classList.add('hidden');
-  loadEncounter(state.encIndex+1); log(`— Encounter ${state.encIndex+1}: <b>${ENCOUNTERS[state.encIndex].name}</b> —`); advance(); }
-function endGame(win){
-  state.phase='over'; bar.innerHTML=''; hintEl.textContent='';
-  document.getElementById('endTitle').textContent = win?'Gauntlet cleared!':'Wiped out';
-  document.getElementById('endTitle').className = win?'win':'lose';
-  document.getElementById('endBody').innerHTML = win
-    ? 'You beat all three encounters — patrol, elite, and the Warlord. Next: a roguelite map to string runs together (<b>Phase 3</b>).'
-    : 'The enemy got the tempo. Stack launch/freeze/burn/bleed, detonate to claw back turns, and pull the Archer into melee.';
-  document.getElementById('end').classList.remove('hidden');
-}
 
 // ---------- UI: ability bar ----------
 function renderBar(){
@@ -555,6 +702,7 @@ function drawTimeline(){
 function render(){
   T=now();
   ctx.clearRect(0,0,W,H);
+  if(mode!=='battle'){ drawMap(); if(RUN) requestAnimationFrame(render); return; }
   // detonate screen-shake (battlefield only)
   let sx=0,sy=0;
   if(state.shakeT){ const p=(T-state.shakeT)/400; if(p<1){ const m=15*(1-p); sx=Math.sin(p*68)*m; sy=Math.cos(p*54)*m; } }
@@ -592,11 +740,9 @@ function render(){
 }
 
 // ---------- boot ----------
-function restart(){ document.getElementById('end').classList.add('hidden');
-  logEl.innerHTML=''; state=freshState(); log('A new run begins. <b>Brand</b> and <b>Wisp</b> stand ready.'); advance(); }
-state=freshState();
-log('Battle start. Faster fighters act first — watch the timeline.');
-render(); advance();
+function restart(){ document.getElementById('end').classList.add('hidden'); closeModal(); logEl.innerHTML=''; newRun(); }
+newRun();
+render();
 </script>
 </body>
 </html>
