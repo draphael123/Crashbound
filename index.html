@@ -13,9 +13,16 @@
   html,body{margin:0;height:100%;background:radial-gradient(120% 120% at 50% -10%,#1a2236 0%,#0b0f1a 70%);color:var(--ink);
     font-family:"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   #wrap{max-width:820px;margin:0 auto;padding:14px 14px 28px;position:relative}
-  #mute{position:absolute;right:24px;top:62px;z-index:6;background:rgba(22,29,46,.85);border:1px solid var(--line);
+  #mute,#howto{position:absolute;top:62px;z-index:6;background:rgba(22,29,46,.85);border:1px solid var(--line);
     color:var(--ink);border-radius:8px;padding:4px 9px;cursor:pointer;font-size:14px;line-height:1}
-  #mute:hover{border-color:var(--gold)}
+  #mute{right:24px} #howto{right:64px}
+  #mute:hover,#howto:hover{border-color:var(--gold)}
+  #coach{display:flex;align-items:center;gap:12px;margin-top:10px;background:linear-gradient(180deg,#2a2440,#191630);
+    border:1px solid var(--gold);border-radius:10px;padding:10px 14px;color:#ffe9c0;font-size:13px;line-height:1.5}
+  #coach #coachText{flex:1}
+  #coach .coachBtns{display:flex;gap:8px;flex-shrink:0}
+  #coach button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:6px 12px;cursor:pointer;font-size:12.5px}
+  #coach button:last-child{background:linear-gradient(180deg,#ffd874,#f0a93c);color:#2a1b00;font-weight:700;border:0}
   h1{font-size:20px;margin:4px 2px 2px;letter-spacing:.5px}
   h1 span{color:var(--gold)}
   .sub{color:var(--muted);font-size:12.5px;margin:0 2px 10px}
@@ -57,8 +64,11 @@
 <div id="wrap">
   <h1>CRASH<span>BOUND</span> — battle prototype</h1>
   <p class="sub">Phase 1 · proving the launch→detonate combo. Faster fighters act sooner on the timeline up top.</p>
+  <button id="howto" onclick="document.getElementById('intro').classList.remove('hidden')" title="How to play">❔</button>
   <button id="mute" onclick="toggleMute()" title="Mute / unmute">🔊</button>
   <canvas id="stage" width="792" height="448"></canvas>
+  <div id="coach" class="hidden"><span id="coachText"></span>
+    <span class="coachBtns"><button onclick="tutSkip()">Skip</button><button onclick="tutNext()">Next ▶</button></span></div>
   <div id="hint"></div>
   <div id="bar"></div>
   <div id="log"></div>
@@ -256,12 +266,101 @@ function genMap(){
   return rows;
 }
 
+const inRect=(mx,my,r)=>mx>=r.x&&mx<=r.x+r.w&&my>=r.y&&my<=r.y+r.h;
+
+// ---- meta progression (persists across runs via localStorage) ----
+const META_UPGRADES = {
+  plate:  {name:'Reinforced Plate', desc:'+6 Max HP to both heroes, per level', max:3, cost:l=>20+l*18},
+  blades: {name:'Sharpened Blades',  desc:'+1 to all attacks, per level',        max:3, cost:l=>24+l*20},
+  purse:  {name:'Coin Purse',        desc:'+15 starting gold, per level',        max:2, cost:l=>18+l*16},
+};
+let meta;
+function loadMeta(){ try{ meta=JSON.parse(localStorage.getItem('cb_meta'))||{}; }catch(e){ meta={}; }
+  meta.renown=meta.renown||0; meta.up=meta.up||{}; meta.seenTut=meta.seenTut||false; }
+function saveMeta(){ try{ localStorage.setItem('cb_meta', JSON.stringify(meta)); }catch(e){} }
+function applyMeta(){
+  const p=meta.up.plate||0, b=meta.up.blades||0, pu=meta.up.purse||0;
+  run.heroes.forEach(h=>{ h.maxhp+=p*6; h.hp=h.maxhp; });
+  run.atkBonus+=b; run.gold+=pu*15;
+}
+
 function newRun(){
   run={ heroes:[ hero('brand','Brand',10,62,['slash','uppercut','shove','rend']),
                  hero('wisp','Wisp',12,44,['bolt','frost','meteor','gust']) ],
-        gold:0, atkBonus:0, burnPlus:0, lifesteal:0, map:genMap(), node:null, cleared:0 };
-  mode='map';
+        gold:0, atkBonus:0, burnPlus:0, lifesteal:0, beatBoss:false, map:genMap(), node:null, cleared:0 };
+  applyMeta();
 }
+function startExpedition(){ mode='map'; fadeT=now(); SFX.start(); syncCoach(); }
+
+// ---- home village (hub) ----
+const BUILDINGS=[
+  {key:'plate',  label:'Blacksmith', x:150, roof:'#7a3b3b'},
+  {key:'blades', label:'Armory',     x:340, roof:'#3b5a7a'},
+  {key:'purse',  label:'Market',     x:530, roof:'#3b7a45'},
+];
+const GATE={x:706};
+function buildingRect(b){ return {x:b.x-58, y:214, w:116, h:132}; }
+function gateRect(){ return {x:GATE.x-50, y:240, w:100, h:116}; }
+function openBuildingModal(key){
+  const u=META_UPGRADES[key], lvl=meta.up[key]||0, maxed=lvl>=u.max, cost=u.cost(lvl);
+  const body=`${u.desc}.<br>Level <b>${lvl}/${u.max}</b><br><br>You have <b>${meta.renown} Renown</b>.`;
+  const btns=[];
+  if(maxed) btns.push({label:'Fully upgraded', disabled:true, onclick:()=>{}});
+  else btns.push({label:`Upgrade — ${cost} Renown`, disabled:meta.renown<cost,
+    onclick:()=>{ if(meta.renown>=cost){ meta.renown-=cost; meta.up[key]=lvl+1; saveMeta(); newRun(); SFX.coin(); openBuildingModal(key); } }});
+  btns.push({label:'Close', onclick:closeModal});
+  openModal(u.name, body, btns);
+}
+function drawVillage(){
+  drawBackground();
+  ctx.fillStyle='rgba(8,12,22,.32)'; ctx.fillRect(0,52,W,H-52);
+  for(const b of BUILDINGS) drawShop(b);
+  drawGate();
+  if(run){ drawCharacter(run.heroes[0], {x:108,y:402,s:0.92}, false, true);
+           drawCharacter(run.heroes[1], {x:62,y:404,s:0.86}, false, true); }
+  ctx.fillStyle='#ffe9a8'; ctx.font='900 27px Segoe UI'; ctx.textAlign='center'; ctx.lineWidth=6; ctx.lineJoin='round'; ctx.strokeStyle='#1a1320';
+  ctx.strokeText('HOME VILLAGE', W/2, 86); ctx.fillText('HOME VILLAGE', W/2, 86);
+  ctx.fillStyle='rgba(40,26,12,.85)'; ctx.fillRect(0,H-32,W,32); ctx.textBaseline='middle';
+  ctx.fillStyle='#ffd76a'; ctx.font='700 14px Segoe UI'; ctx.textAlign='left'; ctx.fillText('◈ '+meta.renown+' Renown', 14, H-16);
+  ctx.textAlign='right'; ctx.fillStyle='#cfd8ee'; ctx.font='600 12px Segoe UI';
+  ctx.fillText('Click a shop to upgrade · enter the gate to begin', W-14, H-16); ctx.textBaseline='alphabetic';
+}
+function drawShop(b){
+  const baseY=346, bx=b.x;
+  ctx.fillStyle='#cdab82'; ctx.fillRect(bx-46,baseY-86,92,86);
+  ctx.strokeStyle='#5a3b1e'; ctx.lineWidth=2; ctx.strokeRect(bx-46,baseY-86,92,86);
+  ctx.fillStyle=b.roof; ctx.beginPath(); ctx.moveTo(bx-57,baseY-86); ctx.lineTo(bx,baseY-124); ctx.lineTo(bx+57,baseY-86); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#5a3b1e'; ctx.fillRect(bx-13,baseY-42,26,42);
+  ctx.fillStyle='#ffe08a'; ctx.fillRect(bx-34,baseY-66,17,17); ctx.fillRect(bx+17,baseY-66,17,17);
+  const lvl=meta.up[b.key]||0, mx=META_UPGRADES[b.key].max;
+  ctx.fillStyle='#2b1d10'; ctx.fillRect(bx-46,baseY-106,92,18);
+  ctx.fillStyle='#ffe9a8'; ctx.font='700 11.5px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(`${b.label}  ${lvl}/${mx}`, bx, baseY-97); ctx.textBaseline='alphabetic';
+}
+function drawGate(){
+  const x=GATE.x, baseY=346;
+  ctx.fillStyle='#6a5230'; ctx.fillRect(x-42,254,16,baseY-254); ctx.fillRect(x+26,254,16,baseY-254); ctx.fillRect(x-46,244,92,16);
+  ctx.fillStyle='#c0392b'; ctx.beginPath(); ctx.moveTo(x-30,260); ctx.lineTo(x+30,260); ctx.lineTo(x+22,292); ctx.lineTo(x-22,292); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='700 12px Segoe UI'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('EXPEDITION', x, 274);
+  const a=0.5+0.5*Math.sin(now()/300); ctx.globalAlpha=a; ctx.fillStyle='#ffcf5c'; ctx.font='700 14px Segoe UI'; ctx.fillText('▶ Enter', x, 330); ctx.globalAlpha=1; ctx.textBaseline='alphabetic';
+}
+
+// ---- guided tutorial (screen-gated coach) ----
+let tutStep=-1;
+const TUT=[
+  {screen:'village', text:'Welcome to <b>Crashbound</b>! This is your home village. Earn <b>Renown</b> on expeditions and spend it at the shops for permanent upgrades.'},
+  {screen:'village', text:'When you’re ready, click the <b>EXPEDITION</b> gate on the right to set out.'},
+  {screen:'map', text:'Choose a path up the map — battles, shops, campfires and events lead to the <b>Warlord</b>. Click a glowing node to go.'},
+  {screen:'battle', text:'The <b>TIMELINE</b> up top shows turn order — faster fighters act first.'},
+  {screen:'battle', text:'The core combo: <b>Brand’s Uppercut</b> launches an enemy (✦), then <b>Wisp’s Meteor</b> DETONATES it for huge bonus damage. Try it!'},
+  {screen:'battle', text:'Win fights for gold, heal at campfires, and reach the Warlord. Good luck!'},
+];
+function startTutorial(){ tutStep=0; syncCoach(); }
+function tutNext(){ tutStep++; if(tutStep>=TUT.length){ tutStep=-1; meta.seenTut=true; saveMeta(); } syncCoach(); }
+function tutSkip(){ tutStep=-1; meta.seenTut=true; saveMeta(); syncCoach(); }
+function syncCoach(){ const c=document.getElementById('coach'); if(!c) return;
+  if(tutStep<0 || tutStep>=TUT.length || TUT[tutStep].screen!==mode){ c.classList.add('hidden'); return; }
+  document.getElementById('coachText').innerHTML='💡 '+TUT[tutStep].text; c.classList.remove('hidden'); }
 function availableNodes(){
   if(!run.node) return run.map[0];
   if(run.node.r>=MAP_ROWS-1) return [];
@@ -279,16 +378,16 @@ function battleState(foeIds,node){
 }
 function startBattle(node){
   const ids = node.type==='boss'?bossFoes() : node.type==='elite'?eliteFoes(node.r) : battleFoes(node.r);
-  state=battleState(ids,node); mode='battle'; fadeT=now();
+  state=battleState(ids,node); mode='battle'; fadeT=now(); syncCoach();
   node.type==='boss' ? SFX.boss() : SFX.start();
   logEl.innerHTML=''; log(`A ${node.type==='boss'?'<b>BOSS</b>':node.type==='elite'?'<b>elite</b>':'battle'} blocks the path. Fight!`);
   advance();
 }
 function onBattleWon(node){
-  node.done=true; run.cleared++; mode='map'; fadeT=now();
+  node.done=true; run.cleared++; mode='map'; fadeT=now(); syncCoach();
   state.phase='over'; bar.innerHTML=''; hintEl.textContent='';
   run.heroes.forEach(h=>{ if(h.hp<=0){ h.hp=Math.ceil(h.maxhp*0.25); h.alive=true; } });
-  if(node.type==='boss'){ showEnd(true); return; }
+  if(node.type==='boss'){ run.beatBoss=true; showEnd(true); return; }
   const gold = node.type==='elite' ? 24+rnd(16) : 11+rnd(9);
   run.gold+=gold; SFX.coin();
   if(node.type==='elite'){
@@ -300,11 +399,13 @@ function onBattleWon(node){
 function onRunLost(){ mode='map'; state.phase='over'; bar.innerHTML=''; hintEl.textContent=''; showEnd(false); }
 function showEnd(win){
   win?SFX.win():SFX.lose();
+  const gained = run.cleared*4 + (win?25:0); meta.renown+=gained; saveMeta();
   document.getElementById('endTitle').textContent = win?'The Warlord falls!':'Your party is slain';
   document.getElementById('endTitle').className = win?'win':'lose';
-  document.getElementById('endBody').innerHTML = win
-    ? `You cleared the keep — ${run.cleared} encounters, ${run.gold} gold banked. Next act: relics, more bosses, deeper maps.`
-    : `You fell after ${run.cleared} encounter${run.cleared===1?'':'s'}. The map reshuffles each run — take a safer path next time.`;
+  document.getElementById('endBody').innerHTML = (win
+    ? `You cleared the keep — ${run.cleared} encounters.`
+    : `You fell after ${run.cleared} encounter${run.cleared===1?'':'s'}. The map reshuffles each run.`)
+    + `<br>Earned <b>${gained} Renown</b> — spend it in the village.`;
   document.getElementById('end').classList.remove('hidden');
 }
 
@@ -496,7 +597,12 @@ async function useAbility(id){
 
 cv.addEventListener('click', async e=>{
   const r=cv.getBoundingClientRect(), mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
-  if(mode==='title'){ resumeAudio(); SFX.start(); mode='map'; fadeT=now(); document.getElementById('intro').classList.remove('hidden'); return; }
+  if(mode==='title'){ resumeAudio(); SFX.start(); mode='village'; fadeT=now();
+    if(!meta.seenTut && tutStep<0) startTutorial(); else syncCoach(); return; }
+  if(mode==='village'){
+    for(const b of BUILDINGS){ if(inRect(mx,my,buildingRect(b))){ SFX.click(); openBuildingModal(b.key); return; } }
+    if(inRect(mx,my,gateRect())){ startExpedition(); return; }
+    return; }
   if(mode==='map'){
     for(const n of availableNodes()){ const dx=mx-n.x, dy=my-n.y; if(dx*dx+dy*dy <= 24*24){ enterNode(n); return; } }
     return; }
@@ -682,9 +788,12 @@ function drawCharacter(u,a,front,hidePlate){
   // active ground ring
   if(active){ ctx.save(); ctx.translate(a.x,a.y); ctx.strokeStyle='rgba(255,207,92,'+(0.4+0.25*Math.sin(t/180))+')';
     ctx.lineWidth=3; ctx.beginPath(); ctx.ellipse(0,2,34*a.s,9*a.s,0,0,7); ctx.stroke(); ctx.restore(); }
-  // contact shadow
-  ctx.save(); ctx.translate(a.x,a.y); ctx.fillStyle='rgba(0,0,0,.28)';
-  ctx.beginPath(); ctx.ellipse(0,2,28*a.s*(launched?0.7:1),7*a.s,0,0,7); ctx.fill(); ctx.restore();
+  // grounding: a darker grass patch + layered contact shadow so feet plant on the ground
+  ctx.save(); ctx.translate(a.x,a.y); const sw=launched?0.7:1;
+  ctx.fillStyle='rgba(34,70,28,.55)'; ctx.beginPath(); ctx.ellipse(0,3,38*a.s,11*a.s,0,0,7); ctx.fill();   // grass decal
+  ctx.fillStyle='rgba(0,0,0,.30)'; ctx.beginPath(); ctx.ellipse(0,2,30*a.s*sw,8*a.s,0,0,7); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,.30)'; ctx.beginPath(); ctx.ellipse(0,1,19*a.s*sw,5*a.s,0,0,7); ctx.fill();
+  ctx.restore();
 
   ctx.save();
   ctx.translate(a.x+lx+shake, a.y-bob);
@@ -823,6 +932,7 @@ function render(){
   T=now();
   ctx.clearRect(0,0,W,H);
   if(mode==='title'){ drawTitle(); drawFade(); if(RUN) requestAnimationFrame(render); return; }
+  if(mode==='village'){ drawVillage(); drawFade(); if(RUN) requestAnimationFrame(render); return; }
   if(mode!=='battle'){ drawMap(); drawFade(); if(RUN) requestAnimationFrame(render); return; }
   // detonate screen-shake (battlefield only)
   let sx=0,sy=0;
@@ -862,8 +972,9 @@ function render(){
 }
 
 // ---------- boot ----------
-function restart(){ document.getElementById('end').classList.add('hidden'); closeModal(); logEl.innerHTML=''; resumeAudio(); newRun(); fadeT=now(); }
-function beginRun(){ document.getElementById('intro').classList.add('hidden'); resumeAudio(); fadeT=now(); }
+function restart(){ document.getElementById('end').classList.add('hidden'); closeModal(); logEl.innerHTML=''; resumeAudio(); newRun(); mode='village'; fadeT=now(); syncCoach(); }
+function beginRun(){ document.getElementById('intro').classList.add('hidden'); resumeAudio(); }
+loadMeta();
 newRun(); mode='title';
 render();
 </script>
