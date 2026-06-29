@@ -87,7 +87,7 @@
     <p style="text-align:left;color:#74e0ff">Launching/freezing also shoves the enemy back on the timeline, so they lose their turn. Trade that lock for damage by detonating.</p>
     <p style="text-align:left">Also: <b>Rend</b> bleeds, <b>Meteor</b> burns (damage over time), and <b>Gust</b> yanks the back enemy into melee.</p>
     <p style="text-align:left;color:#ffcf5c">Climb a branching map — <b>B</b>attles, <b>E</b>lites, <b>$</b>hops, <b>R</b>est, <b>?</b> events — to reach the <b>W</b>arlord. HP carries between fights; spend gold on heals & upgrades. Party wipe ends the run (the map reshuffles).</p>
-    <button onclick="beginRun()">Begin the run</button>
+    <button onclick="beginRun()">Got it!</button>
   </div>
 </div>
 
@@ -538,6 +538,20 @@ function drawMapHUD(){
 }
 
 // ---- title screen ----
+// ---- title menu ----
+let menuSel=0, titleFlourishT=0, pointer={x:-1,y:-1};
+const MENU=[
+  {label:()=>'▶  PLAY', act:()=>{ resumeAudio(); SFX.start(); mode='village'; fadeT=now(); if(!meta.seenTut&&tutStep<0) startTutorial(); else syncCoach(); }},
+  {label:()=>'HOW TO PLAY', act:()=>{ resumeAudio(); SFX.click(); document.getElementById('intro').classList.remove('hidden'); }},
+  {label:()=>'SOUND:  '+(muted?'OFF':'ON'), act:()=>{ resumeAudio(); toggleMute(); }},
+];
+function menuRect(i){ return {x:W/2-115, y:248+i*48, w:230, h:40}; }
+cv.addEventListener('mousemove', e=>{ const r=cv.getBoundingClientRect(); pointer.x=(e.clientX-r.left)*(W/r.width); pointer.y=(e.clientY-r.top)*(H/r.height); });
+window.addEventListener('keydown', e=>{ if(mode!=='title') return;
+  if(e.key==='ArrowDown'){ menuSel=(menuSel+1)%MENU.length; SFX.click(); e.preventDefault(); }
+  else if(e.key==='ArrowUp'){ menuSel=(menuSel-1+MENU.length)%MENU.length; SFX.click(); e.preventDefault(); }
+  else if(e.key==='Enter'||e.key===' '){ MENU[menuSel].act(); e.preventDefault(); } });
+
 function drawKeepSilhouette(){ const bx=W/2-90, by=H-86;
   ctx.fillStyle='rgba(12,9,20,.75)';
   ctx.fillRect(bx,by-104,180,104);
@@ -547,13 +561,13 @@ function drawKeepSilhouette(){ const bx=W/2-90, by=H-86;
   ctx.beginPath(); ctx.moveTo(bx+70,by-104); ctx.lineTo(bx+90,by-150); ctx.lineTo(bx+110,by-104); ctx.closePath(); ctx.fill();
 }
 function drawTitle(){
-  // dramatic dark backdrop
+  // dramatic dark backdrop (glow breathes)
   let g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#251636'); g.addColorStop(.5,'#160e22'); g.addColorStop(1,'#070410');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  let glow=ctx.createRadialGradient(W/2,150,30,W/2,200,380); glow.addColorStop(0,'rgba(255,140,50,.22)'); glow.addColorStop(1,'rgba(255,140,50,0)');
+  const gp=0.15+0.07*Math.sin(now()/650);
+  let glow=ctx.createRadialGradient(W/2,150,30,W/2,200,400); glow.addColorStop(0,`rgba(255,140,50,${gp})`); glow.addColorStop(1,'rgba(255,140,50,0)');
   ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
   drawKeepSilhouette();
-  // ground line
   ctx.fillStyle='#0b0714'; ctx.fillRect(0,H-86,W,86);
   ctx.strokeStyle='rgba(255,140,50,.28)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,H-86); ctx.lineTo(W,H-86); ctx.stroke();
   // rising embers
@@ -561,11 +575,12 @@ function drawTitle(){
   for(const e of embers){ e.y-=e.vy; if(e.y<-6){ e.y=H+6; e.x=Math.random()*W; }
     const fl=.4+.4*Math.sin(now()/280+e.ph); ctx.globalAlpha=fl*.7; ctx.fillStyle='#ffb14a';
     circle(e.x+Math.sin(now()/700+e.ph)*10, e.y, e.r); ctx.fill(); } ctx.globalAlpha=1;
-  // heroes posed (facing off across the center, capes flowing)
-  if(run){ drawCharacter(run.heroes[0], {x:W/2-112,y:H-26,s:1.36}, false, true, {faceDir:1});
-           drawCharacter(run.heroes[1], {x:W/2+112,y:H-30,s:1.24}, false, true, {faceDir:-1}); }
-  // ornate logo
-  ctx.textAlign='center'; const ly=132;
+  // heroes flank the menu and do a periodic flourish (in-place attack motion)
+  if(run && now()-titleFlourishT>3000){ titleFlourishT=now(); run.heroes[0].lungeT=now(); run.heroes[1].lungeT=now(); }
+  if(run){ drawCharacter(run.heroes[0], {x:W/2-188,y:H-24,s:1.3}, false, true, {faceDir:1});
+           drawCharacter(run.heroes[1], {x:W/2+188,y:H-28,s:1.22}, false, true, {faceDir:-1}); }
+  // ornate logo (floats + shimmer sweep)
+  ctx.textAlign='center'; const ly=126+Math.sin(now()/720)*4;
   ctx.strokeStyle='#c9a14a'; ctx.lineWidth=2;
   ctx.beginPath(); ctx.moveTo(W/2-226,ly+16); ctx.lineTo(W/2-158,ly+16); ctx.moveTo(W/2+158,ly+16); ctx.lineTo(W/2+226,ly+16); ctx.stroke();
   ctx.fillStyle='#c9a14a'; circle(W/2-152,ly+16,3); ctx.fill(); circle(W/2+152,ly+16,3); ctx.fill();
@@ -575,13 +590,21 @@ function drawTitle(){
   let mg=ctx.createLinearGradient(0,ly-48,0,ly+8);
   mg.addColorStop(0,'#fff3c4'); mg.addColorStop(.48,'#f3ad3e'); mg.addColorStop(.52,'#d9851f'); mg.addColorStop(1,'#ffe49a');
   ctx.fillStyle=mg; ctx.fillText('CRASHBOUND', W/2, ly);
+  const sw=(now()/1600)%1.5-0.25, a0=Math.min(1,Math.max(0,sw-0.07)), b0=Math.min(1,Math.max(0,sw)), c0=Math.min(1,Math.max(0,sw+0.07));
+  if(c0>a0){ let sg=ctx.createLinearGradient(W/2-230,0,W/2+230,0); sg.addColorStop(a0,'rgba(255,255,255,0)'); sg.addColorStop(b0,'rgba(255,255,255,.5)'); sg.addColorStop(c0,'rgba(255,255,255,0)'); ctx.fillStyle=sg; ctx.fillText('CRASHBOUND', W/2, ly); }
   ctx.font='700 15px Georgia, serif'; ctx.fillStyle='#d8c89a'; ctx.fillText('A   T U R N - B A S E D   B R A W L E R', W/2, ly+34);
-  // CTA
-  const a=.5+.5*Math.sin(now()/300); ctx.globalAlpha=.55+a*.45;
-  ctx.fillStyle='#ffcf5c'; ctx.font='700 17px Segoe UI'; ctx.fillText('▶  CLICK TO BEGIN', W/2, 216); ctx.globalAlpha=1;
+  // menu (hover highlights via pointer)
+  if(pointer.y>=0) for(let i=0;i<MENU.length;i++){ if(inRect(pointer.x,pointer.y,menuRect(i))){ menuSel=i; break; } }
+  for(let i=0;i<MENU.length;i++){ const r=menuRect(i), sel=i===menuSel;
+    ctx.save(); if(sel){ ctx.shadowColor='#ffcf5c'; ctx.shadowBlur=14; }
+    let bg=ctx.createLinearGradient(0,r.y,0,r.y+r.h); bg.addColorStop(0,sel?'#3a2c12':'#241d36'); bg.addColorStop(1,sel?'#2a1c08':'#130f20');
+    ctx.fillStyle=bg; rr(r.x,r.y,r.w,r.h,8); ctx.fill(); ctx.restore();
+    ctx.strokeStyle=sel?'#ffd76a':'#5a4e74'; ctx.lineWidth=sel?2.5:1.5; rr(r.x,r.y,r.w,r.h,8); ctx.stroke();
+    ctx.fillStyle=sel?'#ffe9c0':'#cbbfe0'; ctx.font='700 16px Georgia, serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(MENU[i].label(), W/2, r.y+r.h/2+1); }
+  ctx.textBaseline='alphabetic';
   // footer
   ctx.fillStyle='#6a5f80'; ctx.font='600 11px Segoe UI'; ctx.textAlign='left'; ctx.fillText('prototype · single-file canvas', 14, H-12);
-  ctx.textAlign='right'; ctx.fillText('🔊 sound · ❔ help', W-14, H-12); ctx.textAlign='center';
+  ctx.textAlign='right'; ctx.fillText('↑↓ + enter, or click', W-14, H-12); ctx.textAlign='center';
 }
 function drawFade(){ if(!fadeT) return; const p=(now()-fadeT)/320; if(p>=1){ fadeT=0; return; } ctx.fillStyle=`rgba(6,9,16,${1-p})`; ctx.fillRect(0,0,W,H); }
 
@@ -667,8 +690,7 @@ async function useAbility(id){
 
 cv.addEventListener('click', async e=>{
   const r=cv.getBoundingClientRect(), mx=(e.clientX-r.left)*(W/r.width), my=(e.clientY-r.top)*(H/r.height);
-  if(mode==='title'){ resumeAudio(); SFX.start(); mode='village'; fadeT=now();
-    if(!meta.seenTut && tutStep<0) startTutorial(); else syncCoach(); return; }
+  if(mode==='title'){ for(let i=0;i<MENU.length;i++){ if(inRect(mx,my,menuRect(i))){ menuSel=i; MENU[i].act(); return; } } return; }
   if(mode==='village'){
     for(let i=0;i<BUILDINGS.length;i++){ if(inRect(mx,my,buildingRect(i))){ SFX.click(); openBuildingModal(BUILDINGS[i].key); return; } }
     if(inRect(mx,my,embarkRect())){ startExpedition(); return; }
