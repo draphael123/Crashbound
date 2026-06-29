@@ -119,6 +119,7 @@ window.snap = (sc=0.66, q=0.62)=>{ const t=document.createElement('canvas'); t.w
   t.getContext('2d').drawImage(cv,0,0,t.width,t.height); return t.toDataURL('image/jpeg',q).split(',')[1]; };
 let fadeT = 0;                    // screen-fade transition timestamp
 let footprints = [];              // village footstep marks
+let embers = [];                  // title-screen ember particles
 
 // ---------- audio: synthesized SFX (no files, single-file friendly) ----------
 let actx=null, muted=false;
@@ -192,6 +193,18 @@ const ART = {
   elite: {skin:'#b58fcf', main:'#8f3030', dark:'#591c1c', trim:'#f0a85a', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
   boss:  {skin:'#c7b89c', main:'#3b3656', dark:'#201d30', trim:'#e85a6b', gear:'helmet', weapon:'sword', shield:true, big:true, idle:'calm'},
 };
+
+// ---- optional sprite-sheet art (drop PNGs in assets/, falls back to vector if absent) ----
+// Each entry is a horizontal strip of `frames` equal-width frames, feet-anchored at bottom-center.
+// Uncomment / add ids (brand, wisp, grunt, brute, archer, elite, boss) once art exists. See assets/README.md.
+const SPRITE_MANIFEST = {
+  // brand: {src:'assets/brand.png', frames:4},
+  // wisp:  {src:'assets/wisp.png',  frames:4},
+};
+const SPRITES={};
+function loadSprites(){ for(const id in SPRITE_MANIFEST){ const m=SPRITE_MANIFEST[id], img=new Image();
+  img.onload=()=>{ SPRITES[id]={img, frames:m.frames||1, fw:img.width/(m.frames||1), fh:img.height}; };
+  img.onerror=()=>{}; img.src=m.src; } }
 
 // ---------- foe stat table + encounters ----------
 const FOES = {
@@ -525,23 +538,50 @@ function drawMapHUD(){
 }
 
 // ---- title screen ----
+function drawKeepSilhouette(){ const bx=W/2-90, by=H-86;
+  ctx.fillStyle='rgba(12,9,20,.75)';
+  ctx.fillRect(bx,by-104,180,104);
+  ctx.fillRect(bx-30,by-150,48,150); ctx.fillRect(bx+162,by-150,48,150);
+  ctx.beginPath(); ctx.moveTo(bx-42,by-150); ctx.lineTo(bx-6,by-190); ctx.lineTo(bx+30,by-150); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(bx+150,by-150); ctx.lineTo(bx+186,by-190); ctx.lineTo(bx+222,by-150); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(bx+70,by-104); ctx.lineTo(bx+90,by-150); ctx.lineTo(bx+110,by-104); ctx.closePath(); ctx.fill();
+}
 function drawTitle(){
-  drawBackground();
-  ctx.fillStyle='rgba(8,12,22,.42)'; ctx.fillRect(0,0,W,H);
-  // hero shot
-  if(run){ drawCharacter(run.heroes[0], {x:W/2-96,y:H-36,s:1.5}, false, true);
-           drawCharacter(run.heroes[1], {x:W/2+98,y:H-54,s:1.38}, false, true); }
-  // logo
-  ctx.textAlign='center';
-  ctx.font='900 64px Segoe UI'; ctx.lineWidth=9; ctx.lineJoin='round'; ctx.strokeStyle='#1a1320';
-  ctx.strokeText('CRASHBOUND', W/2, 138);
-  let lg=ctx.createLinearGradient(0,92,0,150); lg.addColorStop(0,'#ffe9a8'); lg.addColorStop(1,'#f0a93c');
-  ctx.fillStyle=lg; ctx.fillText('CRASHBOUND', W/2, 138);
-  ctx.font='700 17px Segoe UI'; ctx.lineWidth=4; ctx.strokeText('A TURN-BASED BRAWLER', W/2, 168);
-  ctx.fillStyle='#e8edf7'; ctx.fillText('A TURN-BASED BRAWLER', W/2, 168);
-  // prompt
-  const a=0.45+0.45*Math.sin(now()/300);
-  ctx.globalAlpha=a; ctx.fillStyle='#ffcf5c'; ctx.font='700 18px Segoe UI'; ctx.fillText('▶  Click to begin', W/2, H-66); ctx.globalAlpha=1;
+  // dramatic dark backdrop
+  let g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#251636'); g.addColorStop(.5,'#160e22'); g.addColorStop(1,'#070410');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  let glow=ctx.createRadialGradient(W/2,150,30,W/2,200,380); glow.addColorStop(0,'rgba(255,140,50,.22)'); glow.addColorStop(1,'rgba(255,140,50,0)');
+  ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
+  drawKeepSilhouette();
+  // ground line
+  ctx.fillStyle='#0b0714'; ctx.fillRect(0,H-86,W,86);
+  ctx.strokeStyle='rgba(255,140,50,.28)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,H-86); ctx.lineTo(W,H-86); ctx.stroke();
+  // rising embers
+  if(!embers.length) for(let i=0;i<46;i++) embers.push({x:Math.random()*W,y:Math.random()*H,vy:.2+Math.random()*.6,r:1+Math.random()*2.2,ph:Math.random()*6});
+  for(const e of embers){ e.y-=e.vy; if(e.y<-6){ e.y=H+6; e.x=Math.random()*W; }
+    const fl=.4+.4*Math.sin(now()/280+e.ph); ctx.globalAlpha=fl*.7; ctx.fillStyle='#ffb14a';
+    circle(e.x+Math.sin(now()/700+e.ph)*10, e.y, e.r); ctx.fill(); } ctx.globalAlpha=1;
+  // heroes posed (facing off across the center, capes flowing)
+  if(run){ drawCharacter(run.heroes[0], {x:W/2-112,y:H-26,s:1.36}, false, true, {faceDir:1});
+           drawCharacter(run.heroes[1], {x:W/2+112,y:H-30,s:1.24}, false, true, {faceDir:-1}); }
+  // ornate logo
+  ctx.textAlign='center'; const ly=132;
+  ctx.strokeStyle='#c9a14a'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(W/2-226,ly+16); ctx.lineTo(W/2-158,ly+16); ctx.moveTo(W/2+158,ly+16); ctx.lineTo(W/2+226,ly+16); ctx.stroke();
+  ctx.fillStyle='#c9a14a'; circle(W/2-152,ly+16,3); ctx.fill(); circle(W/2+152,ly+16,3); ctx.fill();
+  ctx.font='900 68px Georgia, serif'; ctx.lineJoin='round';
+  ctx.save(); ctx.shadowColor='rgba(0,0,0,.6)'; ctx.shadowBlur=12; ctx.shadowOffsetY=4;
+  ctx.lineWidth=10; ctx.strokeStyle='#140f1c'; ctx.strokeText('CRASHBOUND', W/2, ly); ctx.restore();
+  let mg=ctx.createLinearGradient(0,ly-48,0,ly+8);
+  mg.addColorStop(0,'#fff3c4'); mg.addColorStop(.48,'#f3ad3e'); mg.addColorStop(.52,'#d9851f'); mg.addColorStop(1,'#ffe49a');
+  ctx.fillStyle=mg; ctx.fillText('CRASHBOUND', W/2, ly);
+  ctx.font='700 15px Georgia, serif'; ctx.fillStyle='#d8c89a'; ctx.fillText('A   T U R N - B A S E D   B R A W L E R', W/2, ly+34);
+  // CTA
+  const a=.5+.5*Math.sin(now()/300); ctx.globalAlpha=.55+a*.45;
+  ctx.fillStyle='#ffcf5c'; ctx.font='700 17px Segoe UI'; ctx.fillText('▶  CLICK TO BEGIN', W/2, 216); ctx.globalAlpha=1;
+  // footer
+  ctx.fillStyle='#6a5f80'; ctx.font='600 11px Segoe UI'; ctx.textAlign='left'; ctx.fillText('prototype · single-file canvas', 14, H-12);
+  ctx.textAlign='right'; ctx.fillText('🔊 sound · ❔ help', W-14, H-12); ctx.textAlign='center';
 }
 function drawFade(){ if(!fadeT) return; const p=(now()-fadeT)/320; if(p>=1){ fadeT=0; return; } ctx.fillStyle=`rgba(6,9,16,${1-p})`; ctx.fillRect(0,0,W,H); }
 
@@ -820,6 +860,7 @@ function drawCharacter(u,a,front,hidePlate,opts){
   const lx=jit+lungeOff;
   let shake=0; if(u.hitT){ const p=(t-u.hitT)/180; if(p<1) shake=Math.sin(p*40)*3*(1-p); }
   const hitGlow = u.hitT && (t-u.hitT)<170;
+  let swing=0; if(u.lungeT && opts.walk==null){ const p=(t-u.lungeT)/320; if(p<1) swing=(p<0.35? -p*1.1 : (p-0.35)*1.9); } // weapon wind-up + chop
 
   // active ground ring
   if(active){ ctx.save(); ctx.translate(a.x,a.y); ctx.strokeStyle='rgba(255,207,92,'+(0.4+0.25*Math.sin(t/180))+')';
@@ -841,6 +882,11 @@ function drawCharacter(u,a,front,hidePlate,opts){
   const big = A.big;
   if(A.boss) ctx.scale(1.36,1.32); else if(big) ctx.scale(1.18,1.16);
 
+  // sprite override: if a PNG strip is loaded for this unit, draw it instead of the vector body
+  const spr=SPRITES[u.id];
+  if(spr){ const fi=Math.floor(now()/150 + ph)%spr.frames; const dh=132, dw=dh*spr.fw/spr.fh;
+    ctx.drawImage(spr.img, fi*spr.fw,0,spr.fw,spr.fh, -dw/2, -dh+4, dw, dh); }
+  else {
   // flowing cape (knights / boss) — behind the body, sways with motion
   if(A.shield){ const sway=Math.sin(t/430+ph)*2 + gait*5;
     ctx.fillStyle=A.dark; ctx.beginPath(); ctx.moveTo(-12,-82); ctx.lineTo(-16,-80);
@@ -903,8 +949,8 @@ function drawCharacter(u,a,front,hidePlate,opts){
   // front arm
   ctx.fillStyle=A.main; rr(8,-76,11,28,5); ctx.fill(); ctx.stroke();
 
-  // weapon in front hand (~ at 14,-66)
-  ctx.save(); ctx.translate(14,-64);
+  // weapon in front hand (~ at 14,-66) — swings on attack
+  ctx.save(); ctx.translate(14,-64); if(swing) ctx.rotate(swing);
   if(A.weapon==='sword'){ ctx.fillStyle='#dfe6f0'; ctx.beginPath(); ctx.moveTo(-3,2); ctx.lineTo(3,2); ctx.lineTo(5,-44); ctx.lineTo(0,-52); ctx.lineTo(-5,-44); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.fillStyle='#caa23c'; rr(-9,0,18,6,2); ctx.fill(); ctx.stroke(); rr(-3,4,6,12,2); ctx.fill(); ctx.stroke(); }
   else if(A.weapon==='staff'){ ctx.strokeStyle='#7a4a22'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(0,6); ctx.lineTo(2,-44); ctx.stroke(); ctx.lineWidth=2.4; ctx.strokeStyle=OL;
@@ -917,6 +963,7 @@ function drawCharacter(u,a,front,hidePlate,opts){
     ctx.strokeStyle='#e8e0c8'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(16,-56); ctx.lineTo(16,-4); ctx.stroke(); ctx.lineWidth=2.4; ctx.strokeStyle=OL; }
   ctx.restore();
 
+  } // end vector body (sprite override skips it)
   // frozen overlay
   if(u.fx.freeze){ ctx.fillStyle='rgba(116,224,255,.30)'; rr(-26,-118,52,96,12); ctx.fill();
     ctx.strokeStyle='#bdeeff'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(-20,-70); ctx.lineTo(20,-90); ctx.moveTo(-18,-94); ctx.lineTo(18,-66); ctx.stroke(); }
@@ -1018,7 +1065,7 @@ function render(){
 // ---------- boot ----------
 function restart(){ document.getElementById('end').classList.add('hidden'); closeModal(); logEl.innerHTML=''; resumeAudio(); newRun(); mode='village'; fadeT=now(); syncCoach(); }
 function beginRun(){ document.getElementById('intro').classList.add('hidden'); resumeAudio(); }
-loadMeta();
+loadMeta(); loadSprites();
 newRun(); mode='title';
 render();
 </script>
