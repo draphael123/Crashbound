@@ -1,44 +1,63 @@
-# Crashbound — character art (sprite sheets)
+# Crashbound — character art brief (Darkest-Dungeon style)
 
-Drop PNG art here to replace the built-in vector characters. If a file is missing,
-the game falls back to the vector rendering automatically — nothing breaks.
+Drop PNG sprite strips here to replace the built-in vector characters. Missing files
+fall back to the vector rendering automatically — nothing breaks. The engine already
+animates **idle / walk / attack** states, so frame-animated art plays in-game with no
+code changes beyond the manifest.
 
-## How to enable
+---
 
-In `index.html`, find `SPRITE_MANIFEST` and uncomment / add entries:
+## 1. Art-direction brief (what "Darkest Dungeon" means here)
+
+- **Ink:** heavy, variable-weight near-black outlines; bold spot-black shadow shapes;
+  minimal soft mid-tones. Mike Mignola / Hellboy sensibility.
+- **Palette:** grim and desaturated — muted earth, iron, bruise tones. Reserve
+  saturated color for tiny accents (torch orange, blood red, arcane cyan).
+- **Lighting:** hard directional torch-light from one side (the game lights from the
+  lower corners). Bright warm rim on the lit edge, the rest sinking into shadow.
+- **Silhouette:** exaggerated, readable at a glance — hunched backs, big shoulders,
+  oversized hands/weapons, strong gesture. The shape should read with zero color.
+- **Texture:** subtle paper/ink grain is welcome; the engine also overlays grain + vignette.
+
+Cast (ids): `brand` (bronze knight), `wisp` (steel-blue mage), `grunt` (sickly-green
+goblin), `brute` (bruised-purple ogre), `archer` (leather hood), `elite` (blood-red
+ogre captain), `boss` (dark-iron warlord).
+
+## 2. Sprite-sheet format
+
+- **One horizontal strip per state**, equal-width frames left → right, **transparent PNG**.
+- Character **feet-anchored at bottom-center**, **facing right** (engine mirrors for left).
+- Frame box ~**128 × 160 px** (engine scales to ~132 px tall, preserves aspect).
+  4 frames → 512 × 160; 6 frames → 768 × 160.
+- States & how the engine plays them:
+  - `idle` — **required**, ~4 frames, looped slowly (gentle breathe/sway).
+  - `walk` — optional, ~6 frames, looped (used in the village + map travel).
+  - `attack` — optional, ~6 frames, played **once across the swing** (anticipation →
+    strike → recover). Frame 0 = wind-up, last frame = follow-through.
+- Keep the figure roughly centered frame-to-frame so it doesn't jitter.
+
+## 3. Enable it
+
+In `index.html`, fill `SPRITE_MANIFEST`:
 
 ```js
 const SPRITE_MANIFEST = {
-  brand: {src:'assets/brand.png', frames:4},
-  wisp:  {src:'assets/wisp.png',  frames:4},
-  grunt: {src:'assets/grunt.png', frames:4},
-  brute: {src:'assets/brute.png', frames:4},
-  archer:{src:'assets/archer.png',frames:4},
-  elite: {src:'assets/elite.png', frames:4},
-  boss:  {src:'assets/boss.png',  frames:4},
+  brand: { idle:{src:'assets/brand_idle.png',frames:4},
+           walk:{src:'assets/brand_walk.png',frames:6},
+           attack:{src:'assets/brand_attack.png',frames:6} },
+  wisp:  { idle:{src:'assets/wisp_idle.png',frames:4} },   // idle-only is fine
 };
 ```
 
-Valid ids: `brand, wisp, grunt, brute, archer, elite, boss`.
+Overlays still render over sprites (freeze ice, burn flames, hit-flash, airborne ✦,
+screen-shake, the torch rim-light, and the rig's lean/lunge motion), so even idle-only
+art gains motion for free.
 
-## Sprite-sheet format
+## 4. Where to get the art (the engine doesn't generate it)
 
-- **One horizontal strip per character**, `frames` equal-width frames left→right (an idle loop; the game cycles them ~6.7 fps).
-- **Transparent background** (PNG with alpha).
-- The character should be **feet-anchored at the bottom-center** of each frame, **facing right** (the engine mirrors it for left-facing).
-- Recommended frame size: **~128 × 160 px** (the engine scales to ~132 px tall and preserves aspect ratio).
-- Example sheet for 4 frames: **512 × 160 px** (4 × 128 wide).
-
-## Where to get the art
-
-This engine just *renders* the PNGs — it doesn't generate them. Options:
-- Commission a pixel/vector artist (give them the format above).
-- Generate with an external image tool, then cut into an even horizontal strip.
-- Export from a tool like Aseprite (File → Export Sheet → horizontal strip).
-
-## Notes
-
-- Overlays still work over sprites: freeze (ice), burn (flames), hit-flash, the
-  airborne ✦, screen-shake, idle bob, walk stride offset, and the attack lunge.
-- For per-state animation (separate walk/attack rows) we can extend the manifest
-  later; v1 uses a single idle strip and reuses the engine's motion offsets.
+- **Commission** a 2D/pixel artist — hand them §1 + §2.
+- **Generate** base frames with an external image tool, then clean up and cut into an
+  even horizontal strip (Aseprite: File → Export Sheet → horizontal).
+- For full DD-grade weighty animation, deliver a **rigged skeleton** (Spine/Spriter);
+  ping me and I'll extend the loader to a per-part bone format (the rig in this engine
+  already poses parts procedurally, so it's a natural upgrade).
