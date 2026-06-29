@@ -185,13 +185,13 @@ const BURN_DMG = 4, BURN_TURNS = 3, BLEED_DMG = 3, BLEED_TURNS = 3;
 
 // ---------- art palettes ----------
 const ART = {
-  brand: {skin:'#c2a07e', main:'#a4632a', dark:'#3e2410', trim:'#c8a04a', gear:'helmet', weapon:'sword', shield:true, idle:'calm'},
-  wisp:  {skin:'#c2a07e', main:'#39597f', dark:'#172738', trim:'#7fa6c4', gear:'wizhat', weapon:'staff', idle:'float'},
-  grunt: {skin:'#6f9457', main:'#46602f', dark:'#1f2c12', trim:'#8aa860', gear:'none',   weapon:'club', ears:true, idle:'fidget'},
-  brute: {skin:'#9c7e9e', main:'#6e3a52', dark:'#311925', trim:'#9a6a82', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
-  archer:{skin:'#c2a07e', main:'#8a5a30', dark:'#3e2814', trim:'#b0875a', gear:'hood',   weapon:'bow', idle:'calm'},
-  elite: {skin:'#9c7e9e', main:'#7a2626', dark:'#2e1010', trim:'#c07a3a', gear:'none',   weapon:'bigclub', big:true, idle:'sway'},
-  boss:  {skin:'#b7a890', main:'#2e2a42', dark:'#15121f', trim:'#c0392b', gear:'helmet', weapon:'sword', shield:true, big:true, idle:'calm'},
+  brand: {skin:'#c2a07e', main:'#a4632a', dark:'#3e2410', trim:'#c8a04a', gear:'helmet', weapon:'sword', shield:true, idle:'calm',  feat:{brow:1}},
+  wisp:  {skin:'#c2a07e', main:'#39597f', dark:'#172738', trim:'#7fa6c4', gear:'wizhat', weapon:'staff', idle:'float', feat:{beard:1,glow:'#9fd6ff',brow:1}},
+  grunt: {skin:'#6f9457', main:'#46602f', dark:'#1f2c12', trim:'#8aa860', gear:'none',   weapon:'club', ears:true, idle:'fidget', feat:{bignose:1}},
+  brute: {skin:'#9c7e9e', main:'#6e3a52', dark:'#311925', trim:'#9a6a82', gear:'none',   weapon:'bigclub', big:true, idle:'sway', feat:{tusks:1,belly:1,brow:1}},
+  archer:{skin:'#c2a07e', main:'#8a5a30', dark:'#3e2814', trim:'#b0875a', gear:'hood',   weapon:'bow', idle:'calm', feat:{bignose:1}},
+  elite: {skin:'#9c7e9e', main:'#7a2626', dark:'#2e1010', trim:'#c07a3a', gear:'none',   weapon:'bigclub', big:true, idle:'sway', feat:{tusks:1,belly:1,brow:1}},
+  boss:  {skin:'#b7a890', main:'#2e2a42', dark:'#15121f', trim:'#c0392b', gear:'helmet', weapon:'sword', shield:true, big:true, idle:'calm', feat:{horns:1,glow:'#ff6b6b',brow:1}},
 };
 
 // ---- optional sprite-sheet art (drop PNGs in assets/, falls back to vector if absent) ----
@@ -637,8 +637,8 @@ function log(html,cls){ const d=document.createElement('div'); if(cls)d.classNam
   logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
 
 // ---------- scene anchors (feet points) + hitboxes ----------
-function heroAnchor(i){ return i===0 ? {x:238,y:358,s:1.12} : {x:126,y:274,s:1.0}; }
-const FOE_PTS = [{x:W-212,y:360,s:1.12},{x:W-126,y:306,s:1.0},{x:W-52,y:260,s:0.9}];
+function heroAnchor(i){ return i===0 ? {x:214,y:404,s:1.2} : {x:106,y:384,s:1.08}; }
+const FOE_PTS = [{x:W-206,y:404,s:1.2},{x:W-104,y:388,s:1.1},{x:W-28,y:374,s:1.0}];
 function foeAnchor(i){ return FOE_PTS[Math.min(i,FOE_PTS.length-1)]; }
 function anchorOf(u){ const hi=state.heroes.indexOf(u); if(hi>=0) return heroAnchor(hi);
   const fi=living(state.foes).indexOf(u); return foeAnchor(fi<0?0:fi); }
@@ -784,44 +784,44 @@ function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h
 function circle(x,y,r){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.closePath();}
 
 // ---- layered background ----
+function drawTorch(x,y){
+  ctx.strokeStyle='#3a2c1a'; ctx.lineWidth=5; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+50); ctx.stroke(); ctx.lineCap='butt';
+  ctx.fillStyle='#241a10'; rr(x-6,y-8,12,12,2); ctx.fill();
+  const f=0.82+0.18*Math.sin(now()/70+x)+0.08*Math.sin(now()/130);
+  let fg=ctx.createRadialGradient(x,y-12,2,x,y-10,46*f); fg.addColorStop(0,'rgba(255,242,190,.9)'); fg.addColorStop(.5,'rgba(255,150,50,.45)'); fg.addColorStop(1,'rgba(255,120,40,0)');
+  ctx.fillStyle=fg; circle(x,y-10,46*f); ctx.fill();
+  ctx.fillStyle='#ffd76a'; ctx.beginPath(); ctx.moveTo(x,y-28*f); ctx.quadraticCurveTo(x+7,y-8,x,y+2); ctx.quadraticCurveTo(x-7,y-8,x,y-28*f); ctx.fill();
+  ctx.fillStyle='#fff3c0'; ctx.beginPath(); ctx.moveTo(x,y-16*f); ctx.quadraticCurveTo(x+3,y-6,x,y); ctx.quadraticCurveTo(x-3,y-6,x,y-16*f); ctx.fill();
+}
 function drawBackground(){
-  // grim torchlit night sky
-  let sky=ctx.createLinearGradient(0,40,0,H); sky.addColorStop(0,'#0d0b16'); sky.addColorStop(.6,'#171320'); sky.addColorStop(1,'#241a22');
-  ctx.fillStyle=sky; ctx.fillRect(-18,40,W+36,H);
-  // dim cold moon
-  let mg=ctx.createRadialGradient(150,88,4,150,88,48); mg.addColorStop(0,'rgba(200,210,235,.45)'); mg.addColorStop(1,'rgba(200,210,235,0)');
-  ctx.fillStyle=mg; circle(150,88,48); ctx.fill(); ctx.fillStyle='#aab4ce'; circle(150,88,12); ctx.fill();
-  // drifting storm clouds
-  ctx.fillStyle='rgba(26,22,38,.7)'; const cd=now()/90;
-  cloud((170+cd)%(W+120)-60,96,1); cloud((610+cd*0.7)%(W+120)-60,120,.8); cloud((300+cd*1.3)%(W+120)-60,150,.55);
-  // dark hills
-  ctx.fillStyle='#141220'; hill(-20,300,260,90); hill(520,310,360,86);
-  ctx.fillStyle='#0f0d18'; hill(210,318,300,68);
-  // ruined keep silhouette
-  drawCastle(332,318,0.82);
-  // dark treeline
-  ctx.fillStyle='#0c1410'; for(let i=0;i<8;i++) tree(40+i*100, 330, 26+(i%3)*6);
-  // muddy ground
-  let gr=ctx.createLinearGradient(0,330,0,H); gr.addColorStop(0,'#2a2a1c'); gr.addColorStop(1,'#11110b');
-  ctx.fillStyle=gr; ctx.beginPath(); ctx.moveTo(0,344);
-  ctx.bezierCurveTo(W*0.3,332, W*0.7,356, W,338); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,.04)'; for(let i=0;i<50;i++){ const gx=(i*97%W), gy=360+(i*53%80); circle(gx,gy,1.4); ctx.fill(); }
-  // dark foreground brush
-  bush(64,392,1.1); bush(398,388,1.35); bush(726,392,1.0);
-  for(let i=0;i<27;i++) grassTuft(6+i*30, H-2, 0.8+((i*7)%3)*0.18);
-  // torch glows from the lower corners (motivate the rim light) — flicker
+  // ===== FAR BACKGROUND (recedes: small, high, dim, hazed) =====
+  let sky=ctx.createLinearGradient(0,40,0,372); sky.addColorStop(0,'#0c0a15'); sky.addColorStop(.7,'#15111e'); sky.addColorStop(1,'#1e1b26');
+  ctx.fillStyle=sky; ctx.fillRect(-18,40,W+36,332);
+  let mg=ctx.createRadialGradient(150,80,4,150,80,46); mg.addColorStop(0,'rgba(200,210,235,.38)'); mg.addColorStop(1,'rgba(200,210,235,0)');
+  ctx.fillStyle=mg; circle(150,80,46); ctx.fill(); ctx.fillStyle='#9aa4be'; circle(150,80,11); ctx.fill();
+  ctx.fillStyle='rgba(22,18,32,.6)'; const cd=now()/90; cloud((170+cd)%(W+120)-60,78,.9); cloud((560+cd*0.7)%(W+120)-60,104,.7);
+  ctx.fillStyle='#111020'; hill(-30,286,300,66); hill(470,292,400,62); ctx.fillStyle='#0c0a15'; hill(210,298,300,48);
+  drawCastle(362,298,0.6);                                  // distant keep, small + high
+  ctx.fillStyle='#0a110d'; for(let i=0;i<10;i++) tree(28+i*84, 314, 17+(i%3)*5);
+  // atmospheric haze separating background from the foreground stage
+  let hz=ctx.createLinearGradient(0,284,0,372); hz.addColorStop(0,'rgba(44,40,60,0)'); hz.addColorStop(.55,'rgba(48,44,66,.55)'); hz.addColorStop(1,'rgba(26,22,38,.25)');
+  ctx.fillStyle=hz; ctx.fillRect(0,284,W,90);
+  // ===== FOREGROUND STAGE (where they fight) =====
+  let gr=ctx.createLinearGradient(0,356,0,H); gr.addColorStop(0,'#34331f'); gr.addColorStop(.5,'#1d1c12'); gr.addColorStop(1,'#0b0b07');
+  ctx.fillStyle=gr; ctx.beginPath(); ctx.moveTo(0,362); ctx.bezierCurveTo(W*0.3,354,W*0.7,368,W,358); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(150,120,70,.4)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,362); ctx.bezierCurveTo(W*0.3,354,W*0.7,368,W,358); ctx.stroke();   // stage lip
+  ctx.fillStyle='rgba(255,255,255,.035)'; for(let i=0;i<46;i++){ circle((i*97%W),376+(i*53%64),1.4); ctx.fill(); }
+  bush(40,420,1.0); bush(W/2,432,1.25); bush(W-44,422,1.0);  // foreground brush at the very front
+  for(let i=0;i<27;i++) grassTuft(6+i*30, H-1, 0.85+((i*7)%3)*0.2);
+  drawTorch(34,352); drawTorch(W-34,352);                   // foreground torches frame the stage + light it
+  // warm torch wash over the stage (flicker)
   const tf=0.82+0.18*Math.sin(now()/90)+0.05*Math.sin(now()/37);
-  for(const tx of [70, W-70]){ let tg2=ctx.createRadialGradient(tx,H-72,8,tx,H-72,240);
-    tg2.addColorStop(0,`rgba(255,150,60,${0.17*tf})`); tg2.addColorStop(1,'rgba(255,150,60,0)'); ctx.fillStyle=tg2; ctx.fillRect(0,52,W,H-52); }
-  // heavy vignette
-  let vg=ctx.createRadialGradient(W/2,H*0.54,90,W/2,H*0.54,W*0.66);
-  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(4,3,8,.62)'); ctx.fillStyle=vg; ctx.fillRect(0,40,W,H-40);
-  // film grain
+  for(const tx of [40,W-40]){ let tg2=ctx.createRadialGradient(tx,344,8,tx,344,270); tg2.addColorStop(0,`rgba(255,150,60,${0.17*tf})`); tg2.addColorStop(1,'rgba(255,150,60,0)'); ctx.fillStyle=tg2; ctx.fillRect(0,52,W,H-52); }
+  // heavy vignette + grain
+  let vg=ctx.createRadialGradient(W/2,H*0.56,90,W/2,H*0.56,W*0.66); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(4,3,8,.62)'); ctx.fillStyle=vg; ctx.fillRect(0,40,W,H-40);
   ctx.globalAlpha=.045; for(let i=0;i<150;i++){ ctx.fillStyle=(i&1)?'#fff':'#000'; ctx.fillRect((now()*0.013*i)%W|0,(now()*0.017*i+i*53)%H|0,1,1); } ctx.globalAlpha=1;
-  // extra tint for elite / boss fights
   if(state && state.node){
-    if(state.node.type==='boss'){ let v=ctx.createRadialGradient(W/2,H*0.5,80,W/2,H*0.5,W*0.72);
-      v.addColorStop(0,'rgba(45,0,14,0)'); v.addColorStop(1,'rgba(45,0,14,.5)'); ctx.fillStyle=v; ctx.fillRect(0,52,W,H-52); }
+    if(state.node.type==='boss'){ let v=ctx.createRadialGradient(W/2,H*0.5,80,W/2,H*0.5,W*0.72); v.addColorStop(0,'rgba(45,0,14,0)'); v.addColorStop(1,'rgba(45,0,14,.5)'); ctx.fillStyle=v; ctx.fillRect(0,52,W,H-52); }
     else if(state.node.type==='elite'){ ctx.fillStyle='rgba(120,20,40,.16)'; ctx.fillRect(0,52,W,H-52); }
   }
 }
@@ -956,6 +956,8 @@ function drawCharacter(u,a,front,hidePlate,opts){
   ctx.fillStyle=A.trim; rr(-4,-44,8,8,2); ctx.fill();     // buckle
   if(u.side==='hero'){ ctx.fillStyle=A.main;               // pauldrons (bulked for silhouette)
     rr(-33,-88,21,17,8); ctx.fill(); ctx.stroke(); rr(12,-88,21,17,8); ctx.fill(); ctx.stroke(); }
+  if(A.feat&&A.feat.belly){ let bgg=ctx.createLinearGradient(0,-46,0,-18); bgg.addColorStop(0,A.dark); bgg.addColorStop(1,'#0e0b14'); // big gut
+    ctx.fillStyle=bgg; ctx.beginPath(); ctx.ellipse(2,-34,21,17,0,0,7); ctx.fill(); ctx.strokeStyle=OL; ctx.lineWidth=3.1; ctx.stroke(); }
 
   // head
   ctx.fillStyle=A.skin; circle(4,-100,17); ctx.fill(); ctx.stroke();
@@ -984,6 +986,19 @@ function drawCharacter(u,a,front,hidePlate,opts){
     ctx.fillStyle=A.trim; circle(10,-150,3.2); ctx.fill();
     ctx.fillStyle=A.dark; rr(-16,-114,36,7,3); ctx.fill(); ctx.stroke(); }            // brim
   else if(A.gear==='hood'){ ctx.fillStyle=A.main; ctx.beginPath(); ctx.arc(4,-101,20,Math.PI*0.92,Math.PI*2.08); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+
+  // distinctive features (character)
+  const ft=A.feat||{};
+  if(ft.beard){ ctx.fillStyle='#d8d2c4'; ctx.beginPath(); ctx.moveTo(-7,-93); ctx.quadraticCurveTo(5,-60,17,-93); ctx.lineTo(14,-95); ctx.quadraticCurveTo(5,-80,-4,-95); ctx.closePath(); ctx.fill(); ctx.strokeStyle=OL; ctx.lineWidth=2.4; ctx.stroke(); ctx.lineWidth=3.1; }
+  if(ft.bignose){ ctx.fillStyle=A.skin; ctx.strokeStyle=OL; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(17,-101); ctx.quadraticCurveTo(28,-96,17,-90); ctx.fill(); ctx.stroke(); ctx.lineWidth=3.1; }
+  if(ft.tusks){ ctx.fillStyle='#efe9d2'; ctx.strokeStyle=OL; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(7,-90); ctx.lineTo(9,-100); ctx.lineTo(12,-90); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(15,-90); ctx.lineTo(18,-100); ctx.lineTo(20,-90); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.lineWidth=3.1; }
+  if(ft.horns){ ctx.fillStyle='#cfc6b2'; ctx.strokeStyle=OL; ctx.lineWidth=2.4;
+    ctx.beginPath(); ctx.moveTo(-9,-114); ctx.quadraticCurveTo(-22,-128,-15,-140); ctx.quadraticCurveTo(-11,-126,-2,-117); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(15,-114); ctx.quadraticCurveTo(28,-128,21,-140); ctx.quadraticCurveTo(17,-126,8,-117); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.lineWidth=3.1; }
+  if(ft.brow){ ctx.strokeStyle=OL; ctx.lineWidth=2.8; ctx.beginPath(); ctx.moveTo(4,-109); ctx.lineTo(13,-105); ctx.moveTo(21,-108); ctx.lineTo(13,-105); ctx.stroke(); ctx.lineWidth=3.1; }
+  if(ft.glow){ ctx.fillStyle=ft.glow; ctx.shadowColor=ft.glow; ctx.shadowBlur=7; circle(9,-103,2.7); ctx.fill(); circle(16,-102,2.7); ctx.fill(); ctx.shadowBlur=0; }
 
   // front arm
   ctx.fillStyle=A.main; rr(8,-76,11,28,5); ctx.fill(); ctx.stroke();
